@@ -119,6 +119,21 @@ def trim(clip: Clip, *, threshold_db: float = -45.0, margin: float = 0.06) -> Cl
     return Clip(clip.rate, clip.samples[start:end])
 
 
+def split(clip: Clip, max_seconds: float = 60.0, *, search: float = 10.0) -> list[Clip]:
+    """Cut a clip into parts of at most `max_seconds`, each cut in the quietest 300 ms before the limit."""
+    levels, n, window = frame_levels(clip), int(clip.rate * FRAME), 15
+    limit, reach = int(max_seconds / FRAME), int(search / FRAME)
+    parts, start = [], 0
+    while len(levels) - start > limit:
+        lo, hi = start + max(limit - reach, window), start + limit
+        quiet = min(range(lo, hi - window + 1), key=lambda i: sum(levels[i : i + window]))
+        cut = quiet + window // 2
+        parts.append(Clip(clip.rate, clip.samples[start * n : cut * n]))
+        start = cut
+    parts.append(Clip(clip.rate, clip.samples[start * n :]))
+    return parts
+
+
 def join(parts: list[tuple[float, Clip]], rate: int = RATE) -> Clip:
     """Join clips; each pair gives the silence in seconds before its clip."""
     out = array.array("h")

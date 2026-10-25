@@ -5,6 +5,7 @@ import json
 import math
 import re
 import shutil
+import threading
 from dataclasses import dataclass
 
 import pytest
@@ -46,27 +47,33 @@ class T:
 
 
 class FakeSpeech:
-    """Speaks a tone of 0.3 s per word. The first take of `bad` texts is misheard."""
+    """Speaks a tone of 0.3 s per word. The first take of `bad` texts is misheard.
+
+    The tone amplitude names the take, so ASR hears the right take while renders overlap lines.
+    """
 
     def __init__(self, bad=()):
-        self.bad, self.last, self.spoken, self.judged = set(bad), "", [], 0
+        self.bad, self.heard, self.spoken, self.judged = set(bad), [], [], 0
 
     def voices(self, engine=None):
         return {"vibevoice-local": [V("emma", "Emma"), V("carter", "Carter")]}.get(engine, [])
 
     def speak(self, text, *, voice=None, engine=None, seed=None, timeout=600):
         self.spoken.append((text, voice, seed))
+        is_first = sum(t == text for t, *_ in self.spoken) == 1
+        self.heard.append("garbled words" if text in self.bad and is_first else text)
+        amp = 3000 + 20 * (len(self.heard) - 1)
         n = int(audio.RATE * 0.3 * len(text.split()))
-        tone = array.array("h", (int(8000 * math.sin(2 * math.pi * 220 * i / audio.RATE)) for i in range(n)))
+        tone = array.array("h", (int(amp * math.sin(2 * math.pi * 220 * i / audio.RATE)) for i in range(n)))
         lead = array.array("h", bytes(2 * int(0.2 * audio.RATE)))
-        self.last = "garbled words" if text in self.bad and sum(t == text for t, *_ in self.spoken) == 1 else text
         return A(audio.encode_wav(audio.Clip(audio.RATE, lead + tone + lead)))
 
     def transcribe(self, data, *, engine=None, timeout=600):
         if engine == "vibevoice-asr-local":
             self.judged += 1
             return T(" ".join(line["text"] for line in SCRIPT["lines"]))
-        return T(self.last)
+        peak = max(map(abs, audio.decode(data).samples), default=0)
+        return T(self.heard[round((peak - 3000) / 20)])
 
 
 def test_render_retakes_misheard_lines_and_caches_takes(tmp_path):
@@ -133,3 +140,67 @@ def test_master_hits_the_target(tmp_path):
     src.write_bytes(audio.encode_wav(audio.Clip(audio.RATE, loud)))
     result = audio.master(src, tmp_path / "out.mp3", lufs=-19)
     assert abs(result.lufs + 19) <= 0.2 and result.true_peak <= -1.5
+
+
+class MlxSpeech(FakeSpeech):
+    """Adds a `qwen3-tts-mlx` engine with a library of added voices."""
+
+    is_available = True
+
+    def __init__(self):
+        super().__init__()
+        self.languages, self.calls, self.threads = [], [], set()
+
+    def voices(self, engine=None):
+        return [V("stuart", "Stuart")] if engine == "qwen3-tts-mlx" else super().voices(engine)
+
+    def speak(self, text, *, language=None, **kwargs):
+        self.languages.append(language)
+        return super().speak(text, **kwargs)
+
+    def transcribe(self, data, **kwargs):
+        # The Vis layers are not thread-safe, so every Vis call stays on the render thread.
+        self.threads.add(threading.current_thread())
+        return super().transcribe(data, **kwargs)
+
+    def add_voice(self, recording, name, **kwargs):
+        self.calls.append(("add", kwargs["engine"]))
+        return V("me", name, kwargs["language"], True)
+
+    def is_added(self, voice_id):
+        return voice_id == "me"
+
+    def update_voice(self, voice_id, *, engine=None, **changes):
+        self.calls.append(("update", engine))
+        return V(voice_id, changes.get("name") or voice_id, "en", True)
+
+    def remove_voice(self, voice_id, *, engine=None):
+        self.calls.append(("remove", engine))
+        return True
+
+
+def test_mlx_takes_get_the_episode_language_and_added_voices_go_to_its_library(tmp_path):
+    speech = MlxSpeech()
+    pc = Podcaster(speech)
+    script = {**SCRIPT, "language": "fr", "hosts": [{**SCRIPT["hosts"][0], "voice": "stuart"}, SCRIPT["hosts"][1]]}
+    r = pc.render(script, tmp_path)
+    assert [t.engine for t in r.takes] == ["qwen3-tts-mlx", "vibevoice-local", "qwen3-tts-mlx"]
+    assert speech.languages == ["fr", None, "fr"]
+    assert speech.threads == {threading.current_thread()}
+    assert pc.add_voice(b"", "Me").engine == "qwen3-tts-mlx"
+    assert pc.update_voice("me", name="Myself").engine == "qwen3-tts-mlx"
+    assert pc.remove_voice("emma-clone")
+    assert speech.calls == [("add", "qwen3-tts-mlx"), ("update", "qwen3-tts-mlx"), ("remove", "pocket-tts-local")]
+
+
+def test_split_cuts_long_audio_in_its_pauses():
+    second = audio.RATE
+    tone = array.array("h", (int(8000 * math.sin(2 * math.pi * 220 * i / second)) for i in range(second)))
+    pcm = array.array("h")
+    for k in range(25):
+        pcm += tone * 2 + array.array("h", bytes(2 * (second // 2 if k % 5 == 4 else second // 10)))
+    clip = audio.Clip(audio.RATE, pcm)
+    parts = audio.split(clip, 20.0, search=5.0)
+    assert sum(len(p.samples) for p in parts) == len(pcm) and len(parts) == 4
+    for p in parts[:-1]:
+        assert p.seconds <= 20.0 and max(map(abs, p.samples[-second // 20 :])) == 0

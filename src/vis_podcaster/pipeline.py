@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -15,11 +16,15 @@ from vis_podcaster.qwen import ENGINE as QWEN_ENGINE
 from vis_podcaster.script import Episode, Issue, ScriptError, check_script, estimated_minutes, load_episode
 from vis_podcaster.text import fact_heard, proper_names, tokens, word_count, word_errors
 
-ENGINES = (QWEN_ENGINE, "vibevoice-local", "pocket-tts-local", "piper-local")
+# The fastest engine comes first. A host without `engine` gets the first engine that has its voice.
+ENGINES = (QWEN_ENGINE, "qwen3-tts-local", "vibevoice-local", "pocket-tts-local", "piper-local")
+# Vis clones voices with this engine when the MLX environment is missing.
 CLONING_ENGINE = "pocket-tts-local"
 ASR_ENGINE = "parakeet-local"
 # The judge differs from the verifier, so repairs do not overfit one recognizer.
 JUDGE_ENGINE = "vibevoice-asr-local"
+# The judge needs 0.4 s per second of audio up to two minutes, and 0.57 s for five minutes.
+JUDGE_PART_SECONDS = 60.0
 TURN_GAP = 0.35
 SAME_SPEAKER_GAP = 0.25
 LEAD_IN = 0.3
@@ -185,6 +190,10 @@ def _sha(*parts: Any) -> str:
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:20]
 
 
+def _seed(episode: Episode, index: int, attempt: int) -> int:
+    return (episode.seed + 7919 * index + 104729 * attempt) % (2**31 - 1)
+
+
 def _vtt_time(t: float) -> str:
     h, rest = divmod(t, 3600)
     m, s = divmod(rest, 60)
@@ -239,13 +248,20 @@ class Podcaster:
     def add_voice(
         self, recording: str | Path | bytes, name: str, *, transcript: str | None = None, language: str = "en"
     ) -> VoiceChoice:
-        """Clone a voice from 3 to 30 seconds of one clean speaker, for `pocket-tts-local`.
+        """Clone a voice from 3 to 30 seconds of one clean speaker.
 
+        The voice goes to the `qwen3-tts-mlx` library when MLX is available, else to `pocket-tts-local`.
         `transcript` is what the clip says and improves the clone. A voice with the same
         name is replaced. Use the returned `id` as a host `voice`.
         """
-        v = self._api.add_voice(recording, name, language=language, transcript=transcript, engine=CLONING_ENGINE)
-        return VoiceChoice(v.id, v.label, CLONING_ENGINE, v.language, True)
+        engine = QWEN_ENGINE if getattr(self._api, "is_available", False) else CLONING_ENGINE
+        v = self._api.add_voice(recording, name, language=language, transcript=transcript, engine=engine)
+        return VoiceChoice(v.id, v.label, engine, v.language, True)
+
+    def _owner(self, voice_id: str) -> str:
+        """Return the engine that stores the added voice `voice_id`."""
+        is_added = getattr(self._api, "is_added", None)
+        return QWEN_ENGINE if is_added and is_added(voice_id) else CLONING_ENGINE
 
     def update_voice(
         self, voice_id: str, *, name: str | None = None, language: str | None = None, transcript: str | None = None
@@ -256,12 +272,13 @@ class Podcaster:
         """
         given = {"name": name, "language": language, "transcript": transcript}
         changes = {k: (v or None) for k, v in given.items() if v is not None}
-        v = self._api.update_voice(voice_id, engine=CLONING_ENGINE, **changes)
-        return VoiceChoice(v.id, v.label, CLONING_ENGINE, v.language, True)
+        engine = self._owner(voice_id)
+        v = self._api.update_voice(voice_id, engine=engine, **changes)
+        return VoiceChoice(v.id, v.label, engine, v.language, True)
 
     def remove_voice(self, voice_id: str) -> bool:
         """Delete a cloned voice. Return False when it does not exist."""
-        return self._api.remove_voice(voice_id, engine=CLONING_ENGINE)
+        return self._api.remove_voice(voice_id, engine=self._owner(voice_id))
 
     def _resolve(self, episode: Episode) -> tuple[dict[str, tuple[str, str]], list[Issue]]:
         """Map each host to (engine, voice id), and report the hosts without a voice."""
@@ -305,13 +322,27 @@ class Podcaster:
             {h: f"{e}:{v}" for h, (e, v) in chosen.items()},
         )
 
+    def _speak(self, episode: Episode, engine: str, voice: str, spoken: str, seed: int) -> bytes:
+        # Only the MLX engine takes a language; the Vis engines know the language of each voice.
+        extra = {"language": episode.language} if engine == QWEN_ENGINE else {}
+        return self._api.speak(spoken, voice=voice, engine=engine, seed=seed, **extra).content
+
     def _take(
-        self, episode: Episode, index: int, engine: str, voice: str, cache: Path, max_takes: int, max_wer: float
+        self,
+        episode: Episode,
+        index: int,
+        engine: str,
+        voice: str,
+        cache: Path,
+        max_takes: int,
+        max_wer: float,
+        first: Future | None = None,
     ) -> tuple[audio.Clip, dict]:
         """Speak one line until ASR confirms it, and return the best clip with its record.
 
         Each take is cached by its engine, voice, text, seed and verifier, not by the retake policy.
         A render with another `max_takes` or `max_wer` therefore reuses every take that it already has.
+        `first` is the audio of the first take when a background thread already speaks it.
         """
         line = episode.lines[index]
         spoken = episode.spoken(line.text)
@@ -320,14 +351,16 @@ class Podcaster:
         words = word_count(spoken)
         names = proper_names(line.text) | proper_names(spoken)
         for attempt in range(max_takes):
-            seed = (episode.seed + 7919 * index + 104729 * attempt) % (2**31 - 1)
+            seed = _seed(episode, index, attempt)
             key = _sha(engine, voice, spoken, seed, self._asr_engine)
             wav, meta = cache / f"{key}.wav", cache / f"{key}.json"
             if wav.exists() and meta.exists():
                 clip, heard = audio.decode(wav), json.loads(meta.read_text())["heard"]
             else:
                 is_cached = False
-                clip = audio.trim(audio.decode(self._api.speak(spoken, voice=voice, engine=engine, seed=seed).content))
+                is_ahead = attempt == 0 and first is not None
+                content = first.result() if is_ahead else self._speak(episode, engine, voice, spoken, seed)
+                clip = audio.trim(audio.decode(content))
                 heard = (
                     self._api.transcribe(audio.encode_wav(clip), engine=self._asr_engine).text if clip.seconds else ""
                 )
@@ -372,9 +405,39 @@ class Podcaster:
         cache = out / "takes"
         cache.mkdir(parents=True, exist_ok=True)
         parts, takes, clock = [], [], LEAD_IN
+
+        def ahead(i: int) -> Future | None:
+            """Speak the first take of line `i` in the background when the MLX worker speaks it.
+
+            ASR then checks one line while the GPU speaks the next. Vis calls stay on this thread.
+            """
+            if i >= len(episode.lines):
+                return None
+            engine, voice = chosen[episode.lines[i].speaker]
+            spoken, seed = episode.spoken(episode.lines[i].text), _seed(episode, i, 0)
+            if engine != QWEN_ENGINE or (cache / f"{_sha(engine, voice, spoken, seed, self._asr_engine)}.wav").exists():
+                return None
+            return pool.submit(self._speak, episode, engine, voice, spoken, seed)
+
+        results = []
+        with ThreadPoolExecutor(1, thread_name_prefix="podcast-speech") as pool:
+            following = ahead(0)
+            try:
+                for i, line in enumerate(episode.lines):
+                    current, following = following, ahead(i + 1)
+                    clip, rec = self._take(episode, i, *chosen[line.speaker], cache, max_takes, max_wer, first=current)
+                    results.append((clip, rec))
+                    if progress:
+                        state = "cached" if rec["is_cached"] else f"{rec['attempts']} take(s), WER {rec['wer']:.0%}"
+                        progress(
+                            i + 1, len(episode.lines), f"Line {i + 1}/{len(episode.lines)} ({line.speaker}): {state}"
+                        )
+            except BaseException:
+                pool.shutdown(cancel_futures=True)
+                raise
         for i, line in enumerate(episode.lines):
             engine, voice = chosen[line.speaker]
-            clip, rec = self._take(episode, i, engine, voice, cache, max_takes, max_wer)
+            clip, rec = results[i]
             gap = (
                 LEAD_IN if i == 0 else (SAME_SPEAKER_GAP if episode.lines[i - 1].speaker == line.speaker else TURN_GAP)
             )
@@ -400,15 +463,18 @@ class Podcaster:
             )
             parts.append((gap, clip))
             clock += clip.seconds
-            if progress:
-                state = "cached" if rec["is_cached"] else f"{rec['attempts']} take(s), WER {rec['wer']:.0%}"
-                progress(i + 1, len(episode.lines), f"Line {i + 1}/{len(episode.lines)} ({line.speaker}): {state}")
         joined = audio.join(parts + [(TAIL, audio.Clip(audio.RATE, audio.array.array("h")))])
         raw = out / "episode-raw.wav"
         raw.write_bytes(audio.encode_wav(joined))
         final = out / "episode.mp3"
         g = gates or Gates()
-        audio.master(raw, final, lufs=g.target_lufs)
+        if progress:
+            progress(len(episode.lines), len(episode.lines), "Mastering and judging the episode")
+        with ThreadPoolExecutor(1, thread_name_prefix="podcast-master") as pool:
+            # FFmpeg masters while the judge hears the raw mix: mastering changes only the loudness.
+            mastered = pool.submit(audio.master, raw, final, lufs=g.target_lufs)
+            heard = self._judge(audio.decode(raw, rate=16000))
+            mastered.result()
         vtt = out / "episode.vtt"
         names = {h.id: h.name for h in episode.hosts}
         vtt.write_text(
@@ -419,9 +485,7 @@ class Podcaster:
             ),
             encoding="utf-8",
         )
-        if progress:
-            progress(len(episode.lines), len(episode.lines), "Evaluating the mastered episode")
-        quality = self.evaluate(final, episode, gates=g)
+        quality = self._evaluate(final, episode, g, heard=heard)
         elapsed = time.monotonic() - started
         manifest = out / "manifest.json"
         manifest.write_text(
@@ -464,11 +528,29 @@ class Podcaster:
     ) -> Quality:
         """Measure finished audio from any producer against its script, and list the failed gates.
 
-        `script` is an episode or the plain reference text. The judge engine transcribes the whole
-        file in one call, at about 0.7 times real time. WER takes the better of the written and the
-        spoken form. Facts allow ASR spelling variants of names.
+        `script` is an episode or the plain reference text. The judge engine transcribes the file in
+        parts of at most one minute, cut in pauses: its cost grows faster than the length. WER takes
+        the better of the written and the spoken form. Facts allow ASR spelling variants of names.
         """
-        g = gates or Gates()
+        return self._evaluate(audio_file, script, gates or Gates(), timeout=timeout)
+
+    def _judge(self, clip: audio.Clip, timeout: float = 3600) -> str:
+        """Return what the judge engine hears in a clip, part by part."""
+        return " ".join(
+            self._api.transcribe(audio.encode_wav(part), engine=self._judge_engine, timeout=timeout).text.strip()
+            for part in audio.split(clip, JUDGE_PART_SECONDS)
+        )
+
+    def _evaluate(
+        self,
+        audio_file: str | Path,
+        script: str | Path | dict[str, Any] | Episode,
+        g: Gates,
+        *,
+        timeout: float = 3600,
+        heard: str | None = None,
+    ) -> Quality:
+        """Measure `audio_file` like `evaluate`. `heard` is the judge transcript when the caller has it."""
         if isinstance(script, str) and not script.lstrip().startswith("{") and not Path(script).expanduser().exists():
             reference, spoken, facts = script, script, ()
         else:
@@ -476,7 +558,8 @@ class Podcaster:
             reference, spoken = episode.text, episode.spoken(episode.text)
             facts = tuple((f, episode.spoken(f)) for f in episode.critical_facts)
         clip = audio.decode(audio_file, rate=16000)
-        heard = self._api.transcribe(audio.encode_wav(clip), engine=self._judge_engine, timeout=timeout).text
+        if heard is None:
+            heard = self._judge(clip, timeout)
         errors = min(word_errors(reference, heard), word_errors(spoken, heard), key=lambda e: e.wer)
         heard_tokens = tokens(heard)
         missing = tuple(

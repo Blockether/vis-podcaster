@@ -11,23 +11,46 @@ judges the finished file against measurable quality gates.
 
 ## Steps
 
-1. List the voices with `print(await podcast.voices())`. Pick two voices that differ clearly.
-   Prefer `serena` and `aiden` on `qwen3-tts-mlx`: they sound most natural and have the least noise.
-   This engine needs a Python with `mlx-audio` at `~/.vis/podcaster/mlx-venv/bin/python` or in
-   `VIS_PODCASTER_QWEN_PYTHON`. Without it, use `emma` and `carter` on `vibevoice-local`.
+1. Pick two voices that differ clearly, from [Best voices](#best-voices). Run
+   `print(await podcast.voices(language="fr"))` to list the voices of another language.
 2. For a custom voice, ask for 3 to 30 seconds of one clean speaker and the words of the clip.
-   Call `await podcast.add_voice("clip.wav", "Ada", transcript="...")`. In the host, write the
-   returned `id` as `"voice": "pocket-tts-local:<id>"`. Use `podcast.update_voice` to rename a
-   voice and `podcast.remove_voice` to delete it. Clone only a voice whose owner agrees.
+   Call `await podcast.add_voice("clip.wav", "Ada", transcript="...")` and use the returned `id`
+   as the host `voice`. Without `transcript`, speech recognition writes it. Use
+   `podcast.update_voice` to rename a voice and `podcast.remove_voice` to delete it. Clone only a
+   voice whose owner agrees.
 3. Research the topic and write the script as JSON. Follow [Script rules](#script-rules).
 4. Run `print(await podcast.check(script))`. Fix every error. Read every warning and fix it, or
    tell the person why it stays.
-5. Run `r = await podcast.render(script, "out/episode")`, then `print(r)`. A five-minute episode
-   takes about seven minutes, the final evaluation included.
+5. Run `r = await podcast.render(script, "out/episode")`, then `print(r)`. On `qwen3-tts-mlx`, a
+   five-minute episode takes about five minutes: three for the lines and two for the final
+   judgement. The next line speaks while speech recognition checks the current one.
 6. Read the gates in `r.quality`. When a gate fails, follow [Repair](#repair) and render again.
    Takes are cached, so only changed lines are spoken again.
 7. Give the person `out/episode/episode.mp3`, `episode.vtt` and the quality report. State any
    gate that still fails and any line in `r.unverified`.
+
+## Best voices
+
+Use `qwen3-tts-mlx` on Apple silicon. It is the fastest and most natural engine: a line takes
+about half its own length to speak. It needs a Python with `mlx-audio` at
+`~/.vis/podcaster/mlx-venv/bin/python` or in `VIS_PODCASTER_QWEN_PYTHON`.
+
+| Language | Pair | Other voices |
+| --- | --- | --- |
+| English | `stuart` (calm male narrator, British) and `caro` (warm female narrator) | `peter` (deep male narrator), `charles` (clear male, British), `una` (casual female host, American) |
+| French | `fabien` (upbeat male presenter) and `estelle` (conversational female) | |
+| Spanish | `enrique` (neutral male) and `andrea` (warm female) | |
+| Any model language | `aiden` (sunny American male) and `serena` (warm female) | `ryan`, `eric`, `dylan`, `vivian`, `uncle_fu`, `ono_anna`, `sohee` |
+
+- The named voices are cloned from bundled clips with CC0 or CC-BY-4.0 licenses. `voices.json`
+  in the package gives the source and the credit of each clip.
+- Set the script `language`. The model speaks English, Chinese, Japanese, Korean, German, French,
+  Spanish, Italian, Portuguese and Russian. Any voice speaks any of these languages, with its own accent.
+- `una` adds casual fillers such as "uh". Use her for a relaxed host, not for a narrator.
+- The model has no Polish and no other language outside the list. For such a language, choose a
+  voice of that language from `podcast.voices(language=...)` on a Vis engine.
+- Without the MLX Python, the same built-in names work on `qwen3-tts-local`, but slower. The next
+  choice is `emma` and `carter` on `vibevoice-local`.
 
 ## Script rules
 
@@ -38,8 +61,8 @@ judges the finished file against measurable quality gates.
   "language": "en",
   "seed": 2024,
   "hosts": [
-    {"id": "maya", "name": "Maya", "voice": "emma", "role": "host"},
-    {"id": "daniel", "name": "Daniel", "voice": "carter", "role": "guest"}
+    {"id": "maya", "name": "Maya", "voice": "caro", "role": "host"},
+    {"id": "daniel", "name": "Daniel", "voice": "stuart", "role": "guest"}
   ],
   "pronunciations": {"Qin": "Chin"},
   "critical_facts": ["Ming dynasty"],

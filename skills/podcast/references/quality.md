@@ -15,8 +15,9 @@ outside the default range in `Gates`.
 
 ## Measurement rules
 
-- The judge is `vibevoice-asr-local`. It transcribes the whole file in one call. The per-line check
-  during rendering uses `parakeet-local`, so repairs do not overfit the judge.
+- The judge is `vibevoice-asr-local`. It transcribes the whole file in parts of at most one minute,
+  cut in pauses, because its cost grows faster than the length. The per-line check during rendering
+  uses `parakeet-local`, so repairs do not overfit the judge.
 - Normalization makes the texts comparable: lowercase, no punctuation, digits as words, years in
   both spoken forms, and joined or split compounds such as "watchtowers".
 - WER takes the better of the written script and the script with pronunciations applied.
