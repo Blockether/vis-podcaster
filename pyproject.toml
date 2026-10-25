@@ -1,0 +1,27 @@
+[project]
+name = "vis-podcaster"
+version = "0.1.0"
+description = "Two-host podcasts with Vis speech engines, ASR-verified takes and quality gates."
+keywords = ["podcast", "speech"]
+requires-python = ">=3.12"
+dependencies = ["vis-agent>=0.3.3"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+# vis.speech ships after vis-agent 0.3.3. Until that release, build against the sibling Vis checkout.
+# Remove this table before you publish the package.
+[tool.uv.sources]
+vis-agent = { path = "../vis/packages/vis-agent", editable = true }
+
+[tool.vis]
+category = "workflows"
+source_paths = ["src"]
+skills = [{ path = "skills/podcast", settings = false }]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
