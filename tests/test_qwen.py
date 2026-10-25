@@ -2,6 +2,8 @@ import array
 import json
 import math
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -10,10 +12,12 @@ from vis_podcaster import audio, qwen
 from vis_podcaster.qwen import CLONE_MODEL, ENGINE, MODEL, PRESETS, QwenSpeech
 
 STUB = r"""
-import json, os, sys, wave
+import json, os, sys, time, wave
 print(json.dumps({"ready": True}), flush=True)
 for line in sys.stdin:
     req = json.loads(line)
+    if req.get("voice") == "slow":
+        time.sleep(1)
     with open(os.environ["STUB_LOG"], "a") as log:
         log.write(line)
     if req.get("voice") == "broken":
@@ -76,6 +80,24 @@ def test_worker_serves_takes_and_reports_errors(monkeypatch, tmp_path):
             s.speak("x", voice="broken", engine=ENGINE)
     finally:
         s.close()
+
+
+def test_takes_at_the_same_time_never_wait_for_a_busy_worker(monkeypatch, tmp_path):
+    monkeypatch.setattr(qwen, "WORKER", STUB)
+    monkeypatch.setenv("STUB_LOG", str(tmp_path / "requests.jsonl"))
+    s = QwenSpeech(Base(), python=sys.executable)
+    try:
+        s.speak("Warm up.", voice="serena", engine=ENGINE)
+        start = time.monotonic()
+        with ThreadPoolExecutor(3) as pool:
+            takes = list(pool.map(lambda t: s.speak(t, voice="slow", engine=ENGINE), ["One.", "Two.", "Three."]))
+        assert time.monotonic() - start < 2.5
+        assert all(t.engine == ENGINE for t in takes) and len(s._workers) == 3
+        s.speak("Again.", voice="serena", engine=ENGINE)
+        assert len(s._workers) == 3
+    finally:
+        s.close()
+    assert not s._workers and not s._idle
 
 
 def tone(seconds):

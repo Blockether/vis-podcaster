@@ -1,8 +1,8 @@
 """Qwen3-TTS on Apple silicon through MLX, next to the Vis speech engines.
 
-The model runs in a separate Python environment that has `mlx-audio`. One worker process serves every
-line of a render. It loads the CustomVoice model for the built-in speakers and the Base model for
-cloned voices, each on first use. All other calls go to the wrapped Vis speech API.
+The model runs in a separate Python environment that has `mlx-audio`. A pool of worker processes serves
+the takes: a take uses a free worker, or starts a new one when all are busy. Each worker loads the
+CustomVoice model for the built-in speakers and the Base model for cloned voices, each on first use. All other calls go to the wrapped Vis speech API.
 """
 
 from __future__ import annotations
@@ -137,6 +137,7 @@ class QwenSpeech:
 
     `base` is the Vis speech API or a callable that returns it. `python` must have `mlx-audio`.
     Cloned voices come from the bundled `presets` folder and the `library` folder of added voices.
+    Threads can speak at the same time: each take uses a free worker or starts a new one.
     """
 
     def __init__(
@@ -155,8 +156,9 @@ class QwenSpeech:
         self._clone_model = clone_model
         self._presets = Path(presets)
         self._library = Path(library)
-        self._proc: subprocess.Popen | None = None
-        self._lock = threading.Lock()
+        self._idle: list[subprocess.Popen] = []
+        self._workers: set[subprocess.Popen] = set()
+        self._pool_lock = threading.Lock()
         self._library_lock = threading.Lock()
 
     @property
@@ -202,7 +204,7 @@ class QwenSpeech:
         voice = voice or VOICES[0][0]
         lang = LANGUAGES.get(language.lower()[:2], "auto")
         clone = self._clones().get(voice)
-        with self._lock, tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "take.wav"
             request = {"text": text, "seed": seed, "language": lang, "out": str(out)}
             if clone:
@@ -301,15 +303,11 @@ class QwenSpeech:
         return getattr(self._base, name)
 
     def close(self) -> None:
-        """Stop the worker process. The next take starts it again."""
-        proc, self._proc = self._proc, None
-        if proc and proc.poll() is None:
-            proc.stdin.close()
-            try:
-                proc.wait(10)
-            except subprocess.TimeoutExpired:
-                log.warning("%s: the worker did not stop in 10 s; killing it", ENGINE)
-                proc.kill()
+        """Stop every free worker now and each busy one after its take. The next take starts one again."""
+        with self._pool_lock:
+            procs, self._idle, self._workers = self._idle, [], set()
+        for proc in procs:
+            _stop(proc)
 
     def _write(self, entries: list[dict]) -> None:
         index = self._library / "voices.json"
@@ -318,18 +316,47 @@ class QwenSpeech:
         tmp.replace(index)
 
     def _ask(self, request: dict) -> dict:
-        proc = self._worker()
-        proc.stdin.write(json.dumps(request) + "\n")
-        proc.stdin.flush()
-        line = proc.stdout.readline()
+        proc = self._take()
+        try:
+            proc.stdin.write(json.dumps(request) + "\n")
+            proc.stdin.flush()
+            line = proc.stdout.readline()
+        except (OSError, ValueError) as e:
+            log.warning("%s: the worker failed (%s); stopping it", ENGINE, e)
+            line = ""
         if not line:
-            self.close()
+            self._drop(proc)
             raise RuntimeError(f"{ENGINE}: the worker stopped")
+        self._give(proc)
         return json.loads(line)
 
-    def _worker(self) -> subprocess.Popen:
-        if self._proc and self._proc.poll() is None:
-            return self._proc
+    def _take(self) -> subprocess.Popen:
+        """Return a free worker, or start a new one when all are busy. Never wait for a busy one."""
+        with self._pool_lock:
+            while self._idle:
+                proc = self._idle.pop()
+                if proc.poll() is None:
+                    return proc
+                self._workers.discard(proc)
+        proc = self._start()
+        with self._pool_lock:
+            self._workers.add(proc)
+        return proc
+
+    def _give(self, proc: subprocess.Popen) -> None:
+        """Return a worker after its take. A worker that `close` dropped stops here."""
+        with self._pool_lock:
+            if proc in self._workers and proc.poll() is None:
+                self._idle.append(proc)
+                return
+        _stop(proc)
+
+    def _drop(self, proc: subprocess.Popen) -> None:
+        with self._pool_lock:
+            self._workers.discard(proc)
+        _stop(proc)
+
+    def _start(self) -> subprocess.Popen:
         if not self.is_available:
             raise RuntimeError(f"{ENGINE}: no Python with mlx-audio at {self._python}")
         proc = subprocess.Popen(
@@ -343,5 +370,19 @@ class QwenSpeech:
         if not ready.startswith('{"ready"'):
             proc.kill()
             raise RuntimeError(f"{ENGINE}: the worker did not start with {self._python}")
-        self._proc = proc
         return proc
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    """Close the worker's input so it exits, and kill it after 10 s."""
+    if proc.poll() is not None:
+        return
+    try:
+        proc.stdin.close()
+    except OSError as e:
+        log.warning("%s: could not close the worker input: %s", ENGINE, e)
+    try:
+        proc.wait(10)
+    except subprocess.TimeoutExpired:
+        log.warning("%s: the worker did not stop in 10 s; killing it", ENGINE)
+        proc.kill()
