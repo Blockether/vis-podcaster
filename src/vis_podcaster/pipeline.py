@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from vis_podcaster import audio
+from vis_podcaster.qwen import ENGINE as QWEN_ENGINE
 from vis_podcaster.script import Episode, Issue, ScriptError, check_script, estimated_minutes, load_episode
 from vis_podcaster.text import fact_heard, proper_names, tokens, word_count, word_errors
 
-ENGINES = ("vibevoice-local", "pocket-tts-local", "piper-local")
+ENGINES = (QWEN_ENGINE, "vibevoice-local", "pocket-tts-local", "piper-local")
 CLONING_ENGINE = "pocket-tts-local"
 ASR_ENGINE = "parakeet-local"
 # The judge differs from the verifier, so repairs do not overfit one recognizer.

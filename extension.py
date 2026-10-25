@@ -7,7 +7,7 @@ from pathlib import Path
 
 import blockether.vis.extension as vis
 
-from vis_podcaster import Gates, Podcaster, Quality, Render, ScriptCheck, VoiceChoice
+from vis_podcaster import Gates, Podcaster, Quality, QwenSpeech, Render, ScriptCheck, VoiceChoice
 
 
 def _voices_activity(*, phase, result, **_):
@@ -155,6 +155,6 @@ vis.register_extension(
             "podcast: write a script, check it with podcast.check(script), then podcast.render(script, out_dir). "
             "Read doc('vis-podcaster/podcast') before the first episode."
         ),
-        symbols=[vis.Symbol(VisPodcaster(_speech), name="podcast")],
+        symbols=[vis.Symbol(VisPodcaster(QwenSpeech(_speech)), name="podcast")],
     )
 )

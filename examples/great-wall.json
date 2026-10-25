@@ -8,13 +8,13 @@
     {
       "id": "maya",
       "name": "Maya",
-      "voice": "emma",
+      "voice": "qwen3-tts-mlx:serena",
       "role": "host"
     },
     {
       "id": "daniel",
       "name": "Daniel",
-      "voice": "carter",
+      "voice": "qwen3-tts-mlx:aiden",
       "role": "history guest"
     }
   ],

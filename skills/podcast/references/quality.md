@@ -48,18 +48,23 @@ better when it is at least as good on every criterion and better on one.
 
 Both producers spoke the same 31 lines of `examples/great-wall.json`. The judge and gates were the
 same. The comparison producer was the single-narrator Qwen3-TTS skill (voice Aiden, -19 LUFS
-target).
+target). vis-podcaster rendered the episode twice: with `vibevoice-local` (emma, carter) and with
+`qwen3-tts-mlx` (serena, aiden).
 
-| Criterion | vis-podcaster | Qwen3-TTS skill |
-| --- | --- | --- |
-| Judge WER | 2.0% | 1.4% |
-| Fact recall | 7/7 | 7/7 |
-| Loudness, true peak | -16.1 LUFS, -1.8 dBTP | -19.5 LUFS, -1.9 dBTP |
-| Hosts | Two voices (emma, carter) | One narrator for both hosts |
-| Self-repair | Per-line check, 4 automatic retakes | Manual retakes, WER only at the end |
-| Render time | 6.7 min with verification and judge | 3.7 min speech only |
-| Iteration | Cached takes; a policy change keeps them | Manual retake of each chunk |
-| Setup | None beyond Vis | MLX, a 1.7B model download, Python 3.11 |
+| Criterion | vis-podcaster, Qwen3-TTS | vis-podcaster, VibeVoice | Qwen3-TTS skill |
+| --- | --- | --- | --- |
+| Judge WER | 1.8% | 2.0% | 1.4% |
+| Fact recall | 7/7 | 7/7 | 7/7 |
+| Loudness, true peak | -16.0 LUFS, -2.0 dBTP | -16.1 LUFS, -1.8 dBTP | -19.5 LUFS, -1.9 dBTP |
+| Noise floor in lines (quietest 5%) | -70 dB | -57 dB (emma), -64 dB (carter) | not measured |
+| Hosts | Two voices (serena, aiden) | Two voices (emma, carter) | One narrator for both hosts |
+| Self-repair | Per-line check, 3 automatic retakes | Per-line check, 4 automatic retakes | Manual retakes, WER only at the end |
+| Render time | 7.9 min with verification and judge | 6.7 min with verification and judge | 3.7 min speech only |
+| Iteration | Cached takes; a policy change keeps them | Cached takes; a policy change keeps them | Manual retake of each chunk |
+| Setup | MLX environment with `mlx-audio`, a 1.7B model | None beyond Vis | MLX, a 1.7B model download, Python 3.11 |
+
+The emma preset has a constant room noise. Mastering adds about 12 dB of gain, so the noise is
+audible. Use `qwen3-tts-mlx` voices when the MLX environment is available.
 
 Most errors of both producers are Chinese place names, such as Shanhai Pass and Badaling. A
 stricter per-line limit (3% instead of 8%) did not lower the judge WER, so the default stays 8%.

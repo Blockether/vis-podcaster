@@ -11,8 +11,10 @@ judges the finished file against measurable quality gates.
 
 ## Steps
 
-1. List the voices with `print(await podcast.voices())`. Pick two voices that differ clearly, for
-   example `emma` and `carter` on `vibevoice-local`.
+1. List the voices with `print(await podcast.voices())`. Pick two voices that differ clearly.
+   Prefer `serena` and `aiden` on `qwen3-tts-mlx`: they sound most natural and have the least noise.
+   This engine needs a Python with `mlx-audio` at `~/.vis/podcaster/mlx-venv/bin/python` or in
+   `VIS_PODCASTER_QWEN_PYTHON`. Without it, use `emma` and `carter` on `vibevoice-local`.
 2. For a custom voice, ask for 3 to 30 seconds of one clean speaker and the words of the clip.
    Call `await podcast.add_voice("clip.wav", "Ada", transcript="...")`. In the host, write the
    returned `id` as `"voice": "pocket-tts-local:<id>"`. Use `podcast.update_voice` to rename a
