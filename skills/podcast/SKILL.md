@@ -68,9 +68,9 @@ Write the episode the way a radio producer does: for a listener who cannot scrol
 2. **Hook first.** Open with a surprising fact, a scene or a question, in the first two or three
    lines. Keep the full answer for later in the episode. Then name the show and the hosts. Never
    open with "Welcome to".
-3. **Two real roles.** One host explains; the other stands in for the listener. The listener's
-   host also brings facts, guesses, opinions and at least one reasoned objection. A host who
-   only asks "why?" adds nothing.
+3. **A conversation, not a shared narration.** Choose a [format](#choose-a-format). Give each fact
+   of the story to one host. The other host never continues the story with facts of the same
+   story; two voices that read one story in turns sound like a split audiobook.
 4. **Segments with questions.** Give each segment one question, then answer it. Mark each change
    of topic: "That's the history. Now, the chemistry."
 5. **Story, then meaning.** Tell a concrete event with a person, a place and a time, then say
@@ -95,6 +95,26 @@ checks on the finished script:
 4. Do the arithmetic between lines. Two numbers in different turns must agree with each other.
 5. Check each date for anachronism: a technology, a name or a title that did not exist yet.
 6. Remove popular myths, or tell them as myths with the correction.
+
+### Choose a format
+
+| Format | Who knows what | The other host brings |
+| --- | --- | --- |
+| Storyteller and newcomer | One host tells a story. The other hears it for the first time. | Wrong guesses, surprise, jokes, their own life, common-sense doubt, "so what does that mean for me?" |
+| Interview | The guest is the expert and speaks from experience: "When I first saw the data…". | The questions, the follow-ups and the pushback. The host sums up nothing. |
+| Two sides | Each host owns one position and its evidence. | A real counter-argument. One host can change their mind at the end, for a reason. |
+| Two stories | Each host brings a different story on one theme. | Their own story, then the comparison. |
+
+In each format, the newcomer or interviewer does not know the facts of the story. Give that host
+reactions, not information: a guess that is wrong, a memory, an opinion, a joke, a doubt. Let them
+interrupt and react to an image, not to the last sentence.
+
+Avoid a lecture with heckles: a long block from one host, then a quip, many times in a row.
+
+- Let the storyteller answer the newcomer: pick up their guess, their story or their question.
+- Make only some newcomer turns jokes. Most are questions, doubts or short reactions.
+- Add quick exchanges of two to six words in each turn now and then: "Three feet?" "Three feet."
+- Do not start a turn by repeating the number that the other host just said.
 
 ### Phrases that sound generated
 

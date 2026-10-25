@@ -316,7 +316,7 @@ def _review_craft(ep: Episode, issues: list[Issue]) -> None:
                         "warning",
                         "hosts",
                         f"host {host.id!r} ends {asks} of {len(turns)} turns with a question; "
-                        "give them facts, opinions and pushback too",
+                        "give them reactions, guesses, opinions and pushback too",
                     )
                 )
 

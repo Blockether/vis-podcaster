@@ -22,7 +22,7 @@ marks a rule that `podcast.check` tests; the other rules need your judgement.
 
 | Rule | Sources | Check |
 | --- | --- | --- |
-| Give the hosts different jobs, and let both carry content. A host who only asks "what?" and "why?" is not needed. | [S4] | `check`: question share |
+| Give the hosts different jobs. The host who does not know the story carries reactions, guesses, opinions and their own experience, not facts of the same story. A host who only asks "what?" and "why?" is not needed, and a host who narrates in turns is not a conversation. | [S4], [S7] | `check`: question share |
 | The listener's host predicts what the listener does not understand. | [S4] | |
 | React to what the other host actually said. Follow it up. | [S4] | `check`: bare agreement |
 | Let a host say "I don't know", then add what they do know. | [S4] | |
