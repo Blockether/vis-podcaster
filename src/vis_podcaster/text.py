@@ -7,6 +7,7 @@ and symbols into words, so "1987" in a transcript can match "nineteen eighty-sev
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -48,6 +49,24 @@ _ORDINAL_WORDS = {
 _SYMBOLS = {"%": " percent ", "&": " and ", "+": " plus ", "=": " equals ", "@": " at "}
 _NUMBER = re.compile(r"\d+(?:\.\d+)?(?:st|nd|rd|th)?")
 _TOKEN = re.compile(r"[a-z0-9]+(?:'[a-z]+)?")
+# French and Italian elision: "l'exposition" is the two words "l" and "exposition".
+_ELISION = re.compile(
+    r"\b(l|d|j|n|s|c|m|t|qu|jusqu|lorsqu|puisqu|quoiqu|dell|all|nell|sull|dall|un|quest|quell)'(?=[a-z])"
+)
+# Spelling variants get one form. British spellings become American, so "travelled" matches "traveled".
+# French plural number words lose their "s", so "trois-cent" in a transcript matches "trois cents".
+_SPELLINGS = (
+    (re.compile(r"^scept"), "skept"),
+    (re.compile(r"(?<=[ae])ll(?=ed$|ing$|ers?$)"), "l"),
+    (re.compile(r"(?<=\w{3})our(?=$|s$|ed$|ing$|ite$|ites$|able$)"), "or"),
+    (re.compile(r"(?<=\w{3})is(?=e$|es$|ed$|ing$|ation$|ations$)"), "iz"),
+    (re.compile(r"^(cent|met|kilomet|millimet|centimet|theat|fib|lit|spect|somb|lust|meag)re(?=s?$)"), r"\1er"),
+    (re.compile(r"(?<=\w{3})ogue$"), "og"),
+    (re.compile(r"^(cent|vingt)s$"), r"\1"),
+)
+# Hesitations that a voice can add. A heard one that the script does not have is not an error.
+FILLERS = frozenset({"uh", "um", "uhm", "erm", "hmm", "mm", "euh", "ehm"})
+_LIGATURES = {"œ": "oe", "æ": "ae", "ß": "ss", "ø": "o", "ł": "l", "đ": "d"}
 
 
 def cardinal(n: int) -> str:
@@ -111,9 +130,18 @@ def _number_forms(token: str) -> tuple[str, ...]:
     return tuple(forms)
 
 
-def _clean(text: str) -> str:
+def _plain(text: str) -> str:
     text = text.lower().replace("’", "'").replace("‘", "'")
-    text = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
+    for letter, plain in _LIGATURES.items():
+        text = text.replace(letter, plain)
+    # Accents go, so "début" is one token and "a" matches "à" in a transcript.
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def _clean(text: str) -> str:
+    text = _ELISION.sub(r"\1 ", _plain(text))
+    # Thousands separators: "18,000" in English, "18 000" in French.
+    text = re.sub(r"(?<![\d.,])\d{1,3}(?:[,\u00a0\u202f ]\d{3})+\b", lambda m: re.sub(r"\D", "", m.group(0)), text)
     for symbol, word in _SYMBOLS.items():
         text = text.replace(symbol, word)
     return re.sub(r"[-–—/]", " ", text)
@@ -130,6 +158,8 @@ def tokens(text: str, *, forms: dict[str, str] | None = None) -> list[str]:
             choice = (forms or {}).get(raw) or _number_forms(raw)[0]
             out.extend(choice.split())
         else:
+            for pattern, plain in _SPELLINGS:
+                raw = pattern.sub(plain, raw)
             out.append(raw)
     return out
 
@@ -205,7 +235,8 @@ def word_errors(reference: str, hypothesis: str, *, names: frozenset[str] = froz
             chosen[token] = min(
                 options, key=lambda o: sum(_distance(ref, tokens(hypothesis, forms={**chosen, token: o})))
             )
-    hyp = _merge_compounds(ref, tokens(hypothesis, forms=chosen))
+    # A heard filler that the script does not have is not an error.
+    hyp = [w for w in _merge_compounds(ref, tokens(hypothesis, forms=chosen)) if w not in FILLERS or w in ref]
     if names:
         hyp = [_respell(tuple(names), [w])[0] if w not in ref else w for w in hyp]
     s, d, n = _distance(ref, hyp)
@@ -246,5 +277,5 @@ def fact_heard(fact: str, transcript_tokens: list[str], *, tolerance: float = 0.
 
 
 def word_count(text: str) -> int:
-    """Count spoken words after normalization."""
-    return len(tokens(text))
+    """Count spoken words after normalization. An elision such as "l'exposition" counts as one word."""
+    return len(tokens(text)) - len(_ELISION.findall(_plain(text)))

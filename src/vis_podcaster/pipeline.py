@@ -25,7 +25,13 @@ ASR_ENGINE = "parakeet-local"
 JUDGE_ENGINE = "vibevoice-asr-local"
 # The judge needs 0.4 s per second of audio up to two minutes, and 0.57 s for five minutes.
 JUDGE_PART_SECONDS = 60.0
-TURN_GAP = 0.35
+# Vis refuses to transcribe audio shorter than one second.
+MIN_HEARD_SECONDS = 1.05
+TURN_GAP = 0.4
+# An answer follows a question faster than a new turn follows a statement.
+QUESTION_GAP = 0.25
+# Each turn gap varies by up to this many seconds, so the hosts do not alternate like a metronome.
+GAP_JITTER = 0.08
 SAME_SPEAKER_GAP = 0.25
 LEAD_IN = 0.3
 TAIL = 0.8
@@ -194,6 +200,19 @@ def _seed(episode: Episode, index: int, attempt: int) -> int:
     return (episode.seed + 7919 * index + 104729 * attempt) % (2**31 - 1)
 
 
+def _gap(episode: Episode, index: int) -> float:
+    """Return the silence before line `index`, without its own `pause`."""
+    if index == 0:
+        return LEAD_IN
+    before = episode.lines[index - 1]
+    if before.speaker == episode.lines[index].speaker:
+        return SAME_SPEAKER_GAP
+    base = QUESTION_GAP if before.text.rstrip().endswith("?") else TURN_GAP
+    # The same seed gives the same timing, so a render with cached takes keeps its timeline.
+    jitter = (_seed(episode, index, 0) % 1001 / 500 - 1) * GAP_JITTER
+    return round(base + jitter, 3)
+
+
 def _vtt_time(t: float) -> str:
     h, rest = divmod(t, 3600)
     m, s = divmod(rest, 60)
@@ -337,12 +356,14 @@ class Podcaster:
         max_takes: int,
         max_wer: float,
         first: Future | None = None,
+        speaker: ThreadPoolExecutor | None = None,
     ) -> tuple[audio.Clip, dict]:
         """Speak one line until ASR confirms it, and return the best clip with its record.
 
         Each take is cached by its engine, voice, text, seed and verifier, not by the retake policy.
         A render with another `max_takes` or `max_wer` therefore reuses every take that it already has.
         `first` is the audio of the first take when a background thread already speaks it.
+        `speaker` is that thread: retakes run on it too, so one render keeps one model worker.
         """
         line = episode.lines[index]
         spoken = episode.spoken(line.text)
@@ -355,18 +376,34 @@ class Podcaster:
             key = _sha(engine, voice, spoken, seed, self._asr_engine)
             wav, meta = cache / f"{key}.wav", cache / f"{key}.json"
             if wav.exists() and meta.exists():
-                clip, heard = audio.decode(wav), json.loads(meta.read_text())["heard"]
+                clip, saved = audio.decode(wav), json.loads(meta.read_text())
             else:
                 is_cached = False
                 is_ahead = attempt == 0 and first is not None
-                content = first.result() if is_ahead else self._speak(episode, engine, voice, spoken, seed)
+                if is_ahead:
+                    content = first.result()
+                elif speaker is not None and engine == QWEN_ENGINE:
+                    # The render's one speech thread: a retake never starts a second model worker.
+                    content = speaker.submit(self._speak, episode, engine, voice, spoken, seed).result()
+                else:
+                    content = self._speak(episode, engine, voice, spoken, seed)
                 clip = audio.trim(audio.decode(content))
-                heard = (
-                    self._api.transcribe(audio.encode_wav(clip), engine=self._asr_engine).text if clip.seconds else ""
-                )
+                saved = {"seed": seed, "heard": self._hear(clip, self._asr_engine)}
                 wav.write_bytes(audio.encode_wav(clip))
-                meta.write_text(json.dumps({"seed": seed, "heard": heard}))
+                meta.write_text(json.dumps(saved))
+            heard = saved["heard"]
             wer = min(word_errors(spoken, heard, names=names).wer, word_errors(line.text, heard, names=names).wer)
+            if wer > max_wer and self._judge_engine not in (None, self._asr_engine):
+                # Parakeet can hear a French line as English. A take fails only when the judge mishears it too.
+                if "judged" not in saved:
+                    saved["judged"] = self._hear(clip, self._judge_engine)
+                    meta.write_text(json.dumps(saved))
+                judged = min(
+                    word_errors(spoken, saved["judged"], names=names).wer,
+                    word_errors(line.text, saved["judged"], names=names).wer,
+                )
+                if judged < wer:
+                    wer, heard = judged, saved["judged"]
             rate = words / clip.seconds if clip.seconds else 0.0
             ok = wer <= max_wer and MIN_WORDS_PER_SECOND <= rate <= MAX_WORDS_PER_SECOND
             score = (not ok, wer)
@@ -377,6 +414,11 @@ class Podcaster:
                 break
         _, clip, record = best
         return clip, {**record, "attempts": attempt + 1, "is_cached": is_cached}
+
+    def _hear(self, clip: audio.Clip, engine: str) -> str:
+        """Return what `engine` hears in one take. A take under a second gets silence after it, as Vis needs."""
+        padded = audio.pad(clip, MIN_HEARD_SECONDS)
+        return self._api.transcribe(audio.encode_wav(padded), engine=engine).text
 
     def render(
         self,
@@ -425,7 +467,9 @@ class Podcaster:
             try:
                 for i, line in enumerate(episode.lines):
                     current, following = following, ahead(i + 1)
-                    clip, rec = self._take(episode, i, *chosen[line.speaker], cache, max_takes, max_wer, first=current)
+                    clip, rec = self._take(
+                        episode, i, *chosen[line.speaker], cache, max_takes, max_wer, first=current, speaker=pool
+                    )
                     results.append((clip, rec))
                     if progress:
                         state = "cached" if rec["is_cached"] else f"{rec['attempts']} take(s), WER {rec['wer']:.0%}"
@@ -438,10 +482,7 @@ class Podcaster:
         for i, line in enumerate(episode.lines):
             engine, voice = chosen[line.speaker]
             clip, rec = results[i]
-            gap = (
-                LEAD_IN if i == 0 else (SAME_SPEAKER_GAP if episode.lines[i - 1].speaker == line.speaker else TURN_GAP)
-            )
-            gap += line.pause
+            gap = _gap(episode, i) + line.pause
             clock += 0 if i == 0 else gap
             takes.append(
                 Take(
@@ -570,11 +611,13 @@ class Podcaster:
         loud = audio.measure(audio_file)
         pauses = audio.silences(clip, min_seconds=1.0)
         seconds = clip.seconds
-        wpm = errors.reference_words / (seconds / 60) if seconds else 0.0
+        wpm = word_count(reference) / (seconds / 60) if seconds else 0.0
         longest = max((p[1] for p in pauses), default=0.0)
         clipped = audio.clipped_samples(audio.decode(audio_file))
+        # The report and the failure message show the same rounded value.
+        wer = round(errors.wer, 4)
         checks = [
-            (errors.wer <= g.max_wer, f"WER {errors.wer:.1%} is above {g.max_wer:.0%}"),
+            (wer <= g.max_wer, f"WER {wer:.1%} is above {g.max_wer:.0%}"),
             (
                 (len(facts) - len(missing)) / len(facts) >= g.min_fact_recall if facts else True,
                 f"{len(missing)} critical fact(s) not heard",
@@ -589,7 +632,7 @@ class Podcaster:
             (clipped <= g.max_clipped, f"{clipped} clipped samples"),
         ]
         return Quality(
-            round(errors.wer, 4),
+            wer,
             errors.reference_words,
             len(facts) - len(missing),
             len(facts),

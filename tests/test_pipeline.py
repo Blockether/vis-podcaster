@@ -6,11 +6,14 @@ import math
 import re
 import shutil
 import threading
+from collections import Counter
 from dataclasses import dataclass
 
 import pytest
 
 from vis_podcaster import Gates, Podcaster, ScriptError, audio
+from vis_podcaster.pipeline import GAP_JITTER, QUESTION_GAP, TURN_GAP, _gap
+from vis_podcaster.script import load_episode
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 
@@ -86,8 +89,9 @@ def test_render_retakes_misheard_lines_and_caches_takes(tmp_path):
     assert len({seed for *_, seed in speech.spoken}) == 4
     assert steps[:3] == [(1, 3), (2, 3), (3, 3)]
     first, second, third = r.takes
-    assert second.start == pytest.approx(first.end + 0.35, abs=0.001)
-    assert third.start == pytest.approx(second.end + 0.35 + 0.5, abs=0.001)
+    episode = load_episode(SCRIPT)
+    assert second.start == pytest.approx(first.end + _gap(episode, 1), abs=0.001)
+    assert third.start == pytest.approx(second.end + _gap(episode, 2) + 0.5, abs=0.001)
     assert "<v Ben>Builders mixed" in (tmp_path / "episode.vtt").read_text()
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["voices"] == {"a": "vibevoice-local:emma", "b": "vibevoice-local:carter"}
@@ -147,19 +151,21 @@ class MlxSpeech(FakeSpeech):
 
     is_available = True
 
-    def __init__(self):
-        super().__init__()
-        self.languages, self.calls, self.threads = [], [], set()
+    def __init__(self, bad=()):
+        super().__init__(bad)
+        self.languages, self.calls, self.threads, self.speakers = [], [], set(), set()
 
     def voices(self, engine=None):
         return [V("stuart", "Stuart")] if engine == "qwen3-tts-mlx" else super().voices(engine)
 
     def speak(self, text, *, language=None, **kwargs):
+        if kwargs.get("engine") == "qwen3-tts-mlx":
+            self.speakers.add(threading.current_thread())
         self.languages.append(language)
         return super().speak(text, **kwargs)
 
     def transcribe(self, data, **kwargs):
-        # The Vis layers are not thread-safe, so every Vis call stays on the render thread.
+        # Every Vis call stays on the render thread.
         self.threads.add(threading.current_thread())
         return super().transcribe(data, **kwargs)
 
@@ -179,13 +185,74 @@ class MlxSpeech(FakeSpeech):
         return True
 
 
+def test_turn_gaps_follow_questions_faster_and_vary():
+    lines = [{"speaker": "ab"[i % 2], "text": "Why?" if i % 2 else "Because."} for i in range(20)]
+    episode = load_episode({**SCRIPT, "critical_facts": [], "lines": lines})
+    after_question = [_gap(episode, i) for i in range(2, 20, 2)]
+    after_statement = [_gap(episode, i) for i in range(1, 20, 2)]
+    assert all(abs(g - QUESTION_GAP) <= GAP_JITTER for g in after_question)
+    assert all(abs(g - TURN_GAP) <= GAP_JITTER for g in after_statement)
+    assert len(set(after_statement)) > 1 and [_gap(episode, i) for i in range(20)] == [
+        _gap(episode, i) for i in range(20)
+    ]
+
+
+def test_mlx_retakes_use_the_one_speech_thread_of_the_render(tmp_path):
+    # A retake on the render thread used to start a second MLX worker, which loaded the model again.
+    speech = MlxSpeech(bad={"That is wonderful."})
+    script = {**SCRIPT, "hosts": [{**h, "voice": "stuart"} for h in SCRIPT["hosts"]]}
+    script["hosts"][1]["voice"] = "stuart"
+    r = Podcaster(speech).render(script, tmp_path, gates=Gates(max_wer=1.0, min_wpm=0))
+    assert r.takes[2].attempts == 2
+    assert len(speech.speakers) == 1 and threading.current_thread() not in speech.speakers
+
+
+def test_a_take_shorter_than_a_second_is_still_transcribed(tmp_path):
+    # Vis refuses audio under one second, and a one-word line crashed the render of a French episode.
+    speech = FakeSpeech()
+    hear = speech.transcribe
+
+    def transcribe(data, **kwargs):
+        if audio.decode(data).seconds < 1.0:
+            raise RuntimeError("Voice recording too short - try again")
+        return hear(data, **kwargs)
+
+    speech.transcribe = transcribe
+    pc = Podcaster(speech)
+    _, rec = pc._take(
+        load_episode({**SCRIPT, "critical_facts": [], "lines": [{"speaker": "a", "text": "Hi"}]}),
+        0,
+        "vibevoice-local",
+        "emma",
+        tmp_path,
+        1,
+        0.1,
+    )
+    assert rec["heard"] == "Hi" and rec["wer"] == 0
+
+
+def test_a_take_that_only_the_first_transcriber_mishears_needs_no_retake(tmp_path):
+    # Parakeet heard French lines of the tour-eiffel episode as English; VibeVoice heard them right.
+    speech = FakeSpeech(bad={"Bonjour tout le monde"})
+    hear = speech.transcribe
+    speech.transcribe = lambda data, *, engine=None, **k: (
+        T("Bonjour tout le monde") if engine == "vibevoice-asr-local" else hear(data, engine=engine, **k)
+    )
+    line = {"speaker": "a", "text": "Bonjour tout le monde"}
+    episode = load_episode({**SCRIPT, "language": "fr", "critical_facts": [], "lines": [line]})
+    _, rec = Podcaster(speech)._take(episode, 0, "vibevoice-local", "emma", tmp_path, 3, 0.1)
+    assert rec["attempts"] == 1 and rec["wer"] == 0 and rec["heard"] == "Bonjour tout le monde"
+    assert json.loads(next(tmp_path.glob("*.json")).read_text())["judged"] == "Bonjour tout le monde"
+
+
 def test_mlx_takes_get_the_episode_language_and_added_voices_go_to_its_library(tmp_path):
     speech = MlxSpeech()
     pc = Podcaster(speech)
     script = {**SCRIPT, "language": "fr", "hosts": [{**SCRIPT["hosts"][0], "voice": "stuart"}, SCRIPT["hosts"][1]]}
     r = pc.render(script, tmp_path)
     assert [t.engine for t in r.takes] == ["qwen3-tts-mlx", "vibevoice-local", "qwen3-tts-mlx"]
-    assert speech.languages == ["fr", None, "fr"]
+    # Prefetch threads speak in any order.
+    assert Counter(speech.languages) == Counter(["fr", None, "fr"])
     assert speech.threads == {threading.current_thread()}
     assert pc.add_voice(b"", "Me").engine == "qwen3-tts-mlx"
     assert pc.update_voice("me", name="Myself").engine == "qwen3-tts-mlx"

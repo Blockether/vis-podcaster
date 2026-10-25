@@ -100,6 +100,18 @@ def test_takes_at_the_same_time_never_wait_for_a_busy_worker(monkeypatch, tmp_pa
     assert not s._workers and not s._idle
 
 
+def test_takes_above_max_workers_wait_for_a_free_worker(monkeypatch, tmp_path):
+    monkeypatch.setattr(qwen, "WORKER", STUB)
+    monkeypatch.setenv("STUB_LOG", str(tmp_path / "requests.jsonl"))
+    s = QwenSpeech(Base(), python=sys.executable, max_workers=2)
+    try:
+        with ThreadPoolExecutor(4) as pool:
+            takes = list(pool.map(lambda t: s.speak(t, voice="slow", engine=ENGINE), ["1", "2", "3", "4"]))
+        assert len(takes) == 4 and len(s._workers) == 2
+    finally:
+        s.close()
+
+
 def tone(seconds):
     n = int(audio.RATE * seconds)
     pcm = array.array("h", (int(6000 * math.sin(2 * math.pi * 200 * i / audio.RATE)) for i in range(n)))

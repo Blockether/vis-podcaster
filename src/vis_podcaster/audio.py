@@ -145,6 +145,14 @@ def join(parts: list[tuple[float, Clip]], rate: int = RATE) -> Clip:
     return Clip(rate, out)
 
 
+def pad(clip: Clip, seconds: float) -> Clip:
+    """Add silence after `clip` until it lasts at least `seconds`."""
+    missing = int(seconds * clip.rate) - len(clip.samples)
+    if missing <= 0:
+        return clip
+    return Clip(clip.rate, clip.samples + array.array("h", bytes(2 * missing)))
+
+
 def silences(clip: Clip, *, threshold_db: float = -40.0, min_seconds: float = 1.0) -> list[tuple[float, float]]:
     """Return (start, length) in seconds of each inner silence at least `min_seconds` long."""
     levels = frame_levels(clip)

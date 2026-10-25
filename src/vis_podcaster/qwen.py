@@ -27,6 +27,8 @@ ENGINE = "qwen3-tts-mlx"
 MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
 # The Base model clones a voice from a short clip and its transcript.
 CLONE_MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+# Each worker loads its own model copy of about 2 GB. More than three gain little on one GPU.
+MAX_WORKERS = 3
 # Set VIS_PODCASTER_QWEN_PYTHON to a Python that has mlx-audio installed.
 PYTHON = Path(os.environ.get("VIS_PODCASTER_QWEN_PYTHON", "~/.vis/podcaster/mlx-venv/bin/python")).expanduser()
 # Bundled preset voices: one clean clip, its transcript and its license for each voice.
@@ -137,7 +139,8 @@ class QwenSpeech:
 
     `base` is the Vis speech API or a callable that returns it. `python` must have `mlx-audio`.
     Cloned voices come from the bundled `presets` folder and the `library` folder of added voices.
-    Threads can speak at the same time: each take uses a free worker or starts a new one.
+    Threads can speak at the same time: each take uses a free worker or starts a new one. Each worker
+    holds its own copy of the model, so at most `max_workers` run; a take beyond that waits for one.
     """
 
     def __init__(
@@ -149,6 +152,7 @@ class QwenSpeech:
         clone_model: str = CLONE_MODEL,
         presets: str | Path = PRESETS,
         library: str | Path = LIBRARY,
+        max_workers: int = MAX_WORKERS,
     ):
         self._base_ref = base
         self._python = Path(python)
@@ -157,8 +161,10 @@ class QwenSpeech:
         self._presets = Path(presets)
         self._library = Path(library)
         self._idle: list[subprocess.Popen] = []
+        self._starting = 0
         self._workers: set[subprocess.Popen] = set()
-        self._pool_lock = threading.Lock()
+        self._pool_lock = threading.Condition()
+        self._max_workers = max(1, max_workers)
         self._library_lock = threading.Lock()
 
     @property
@@ -331,14 +337,24 @@ class QwenSpeech:
         return json.loads(line)
 
     def _take(self) -> subprocess.Popen:
-        """Return a free worker, or start a new one when all are busy. Never wait for a busy one."""
+        """Return a free worker, or start one when all are busy. Wait only at `max_workers`."""
         with self._pool_lock:
-            while self._idle:
-                proc = self._idle.pop()
-                if proc.poll() is None:
-                    return proc
-                self._workers.discard(proc)
-        proc = self._start()
+            while True:
+                while self._idle:
+                    proc = self._idle.pop()
+                    if proc.poll() is None:
+                        return proc
+                    self._workers.discard(proc)
+                if len(self._workers) + self._starting < self._max_workers:
+                    self._starting += 1
+                    break
+                self._pool_lock.wait()
+        try:
+            proc = self._start()
+        finally:
+            with self._pool_lock:
+                self._starting -= 1
+                self._pool_lock.notify()
         with self._pool_lock:
             self._workers.add(proc)
         return proc
@@ -348,12 +364,14 @@ class QwenSpeech:
         with self._pool_lock:
             if proc in self._workers and proc.poll() is None:
                 self._idle.append(proc)
+                self._pool_lock.notify()
                 return
         _stop(proc)
 
     def _drop(self, proc: subprocess.Popen) -> None:
         with self._pool_lock:
             self._workers.discard(proc)
+            self._pool_lock.notify()
         _stop(proc)
 
     def _start(self) -> subprocess.Popen:

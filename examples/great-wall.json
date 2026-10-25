@@ -21,7 +21,8 @@
   "pronunciations": {
     "Qin": "Chin",
     "Mutianyu": "Moo-tyen-yoo",
-    "BC": "B.C."
+    "BC": "B.C.",
+    "Jiangnu": "Jyang-noo"
   },
   "critical_facts": [
     "twenty-one thousand, one hundred and ninety-six kilometers",
@@ -36,132 +37,129 @@
     "UNESCO World Heritage List, The Great Wall (inscribed 1987), https://whc.unesco.org/en/list/438",
     "State Administration of Cultural Heritage of China, 2012 survey: 21,196 km of walls",
     "Yang, F. et al. (2010), Accounts of Chemical Research 43(6): sticky rice-lime mortar",
-    "NASA Earth Observatory, 'Great Wall of China' (2005) on visibility from orbit"
+    "NASA Earth Observatory, 'Great Wall of China' (2005) on visibility from orbit",
+    "Xinhua (2003): Yang Liwei did not see the Great Wall from orbit"
   ],
   "lines": [
     {
+      "speaker": "daniel",
+      "text": "Here's a confession on behalf of the whole world. The Great Wall of China is not really one wall."
+    },
+    {
       "speaker": "maya",
-      "text": "Welcome to Long Story Short, the show where we take one big subject and make it make sense. I'm Maya, and today we're talking about the Great Wall of China. With me is Daniel, who has spent far too many summers walking on it."
+      "text": "Hold on. It's the most famous wall on Earth, and it isn't one wall?"
     },
     {
       "speaker": "daniel",
-      "text": "Guilty as charged. Hi, Maya. And I want to start with a small confession on behalf of the whole world: the Great Wall is not really one wall."
+      "text": "It's a network. Different states and dynasties built walls over roughly two thousand years. Some ran side by side, and some were rebuilt on top of older ones."
     },
     {
       "speaker": "maya",
-      "text": "Okay, that's already a twist. What do you mean, not one wall?"
+      "text": "This is Long Story Short, one big subject in fifteen minutes. I'm Maya. Daniel has spent far too many summers walking on that wall, and today he gets to ruin my school facts."
     },
     {
       "speaker": "daniel",
-      "text": "It's a network. Different Chinese states and dynasties built walls over roughly two thousand years. Some ran side by side, some were abandoned, some were rebuilt on top of older ones. What we call the Great Wall is really the whole family of them."
+      "text": "Only the wrong ones. Let's start with who began it."
     },
     {
       "speaker": "maya",
-      "text": "So who started it?"
+      "text": "My guess is one emperor with a very big plan."
     },
     {
       "speaker": "daniel",
-      "text": "The earliest walls go back to rival states in the seventh century BC. But the big moment comes after two hundred and twenty-one BC, when the first emperor, Qin Shi Huang, unified China. He had the northern walls joined up and extended to keep out nomadic peoples from the steppe."
+      "text": "Close, but late. The earliest walls go back to rival states in the seventh century BC. The big moment comes in two hundred and twenty-one BC. That's when the first emperor, Qin Shi Huang, unified China. He had the northern walls joined up and extended against the nomads of the steppe."
     },
     {
       "speaker": "maya",
-      "text": "And those early walls, were they the stone walls we see in photos?"
+      "text": "So I picture stone walls with towers, like on the postcards."
     },
     {
       "speaker": "daniel",
-      "text": "Not at all. Most were rammed earth. Workers packed soil, gravel and sometimes reeds into wooden frames, layer by layer, until it was as hard as rock. In the western deserts, the Han dynasty even used layers of sand and willow branches."
+      "text": "Not yet. Most early walls were rammed earth. Workers packed soil and gravel into wooden frames, layer by layer, until it was as hard as rock. In the western deserts, the Han dynasty even used layers of sand and willow branches."
     },
     {
       "speaker": "maya",
-      "text": "Then where do the famous brick walls and watchtowers come from?"
+      "text": "Sand and sticks. Then the postcard wall is much younger than I thought."
     },
     {
       "speaker": "daniel",
-      "text": "That's mostly the Ming dynasty, which ruled from thirteen sixty-eight to sixteen forty-four. The Ming rebuilt the wall in brick and stone, with thousands of watchtowers. The postcard sections near Beijing, like Badaling and Mutianyu, are Ming work."
+      "text": "Much younger. It's mostly the Ming dynasty, which ruled from thirteen sixty-eight to sixteen forty-four. The Ming rebuilt the wall in brick and stone, with thousands of watchtowers. The famous sections near Beijing, like Badaling and Mutianyu, are Ming work."
     },
     {
       "speaker": "maya",
-      "text": "Let's do the number everybody asks about. How long is it?"
+      "text": "Now the number everybody asks about. How long is it?"
     },
     {
       "speaker": "daniel",
-      "text": "In twenty twelve, China's cultural heritage agency finished a national survey. Counting every branch and every dynasty, it measured twenty-one thousand, one hundred and ninety-six kilometers. That's about thirteen thousand miles."
+      "text": "In twenty twelve, China's heritage agency finished a national survey. Counting every branch and every dynasty, it found twenty-one thousand, one hundred and ninety-six kilometers."
     },
     {
       "speaker": "maya",
-      "text": "Wait, that's more than half the way around the Earth."
+      "text": "That's more than half the way around the Earth. I don't believe it."
     },
     {
       "speaker": "daniel",
-      "text": "It is, but remember, that's the total of many walls, not one line you could walk from end to end. The Ming wall alone is a bit under nine thousand kilometers. It runs from Shanhai Pass, where it meets the sea, to Jiayu Pass in the western desert."
+      "text": "You shouldn't, not as one line. That's the total of many walls. The Ming wall alone is a bit under nine thousand kilometers, from Shanhai Pass at the sea to Jiayu Pass in the desert."
     },
     {
       "speaker": "maya",
-      "text": "I have to ask about my favorite fact from school. You can see the Great Wall from space, right?"
+      "text": "Fine. But I'm keeping my favorite fact. You can see it from space."
     },
     {
       "speaker": "daniel",
-      "text": "Sorry, Maya. It's a myth. The wall is long, but it's only a few meters wide, and it's roughly the same color as the land around it. From orbit, it's not visible from space with the naked eye. China's first astronaut, Yang Liwei, said he looked and couldn't see it."
+      "text": "Sorry, Maya. The wall is long, but only a few meters wide, and it has the color of the land around it. It's not visible from space with the naked eye. China's first astronaut, Yang Liwei, looked for it in two thousand three. He said he couldn't see it."
     },
     {
       "speaker": "maya",
-      "text": "That hurts a little. Okay, give me a true fact that's even better."
+      "text": "That hurts. You owe me a true fact that's better."
     },
     {
       "speaker": "daniel",
-      "text": "Sticky rice. Ming builders mixed cooked sticky rice into their lime mortar. Chemists studied it in twenty ten and found that a starch from the rice makes the mortar stronger and more water resistant. Some of those walls are still standing because of it."
+      "text": "Sticky rice. Ming builders mixed cooked sticky rice into their lime mortar. In twenty ten, chemists found that a starch from the rice makes the mortar stronger and more water resistant."
     },
     {
       "speaker": "maya",
-      "text": "Soup in the walls. I love it. But who actually did the building?"
+      "text": "So parts of the wall are held together by dinner. I'll take that trade."
     },
     {
       "speaker": "daniel",
-      "text": "Soldiers, conscripted farmers and convicts, in huge numbers. The work was brutal, and many died. There's a famous folk tale about a woman named Meng Jiangnu, who wept so hard for her husband, who died on the wall, that a section of it collapsed."
+      "text": "The building itself was no joke, though. Soldiers, farmers and convicts did the work, in huge numbers, and many of them died. There's a folk tale about a woman named Meng Jiangnu. Her husband died on the wall, and she wept so hard that a section collapsed."
     },
     {
       "speaker": "maya",
-      "text": "And did all of this actually work? Did the wall keep invaders out?"
+      "text": "All that work and all those deaths. Did it at least keep invaders out?"
     },
     {
       "speaker": "daniel",
-      "text": "Sometimes. It slowed raiders down, and the beacon towers could pass a warning hundreds of kilometers with smoke by day and fire by night. But walls only work with people behind them. In sixteen forty-four, the Manchu armies came through Shanhai Pass after a Ming general opened the gate to them."
+      "text": "Sometimes. Beacon towers passed warnings hundreds of kilometers, with smoke by day and fire by night. But in sixteen forty-four, a Ming general opened Shanhai Pass, and the Manchu armies rode through."
     },
     {
       "speaker": "maya",
-      "text": "So the strongest wall still has a door."
+      "text": "So the strongest wall still depends on whoever holds the key to the gate."
     },
     {
       "speaker": "daniel",
-      "text": "Exactly. In the end, the wall was as much about control as defense. It managed trade, collected taxes and marked the edge of the empire."
+      "text": "That's the real lesson of the wall. It controlled trade, collected taxes and marked the edge of the empire. It only worked with people who chose to defend it."
     },
     {
       "speaker": "maya",
-      "text": "What does the wall look like today?"
+      "text": "And today? Is it still there to visit?"
     },
     {
       "speaker": "daniel",
-      "text": "It became a World Heritage Site in nineteen eighty-seven, and a few sections are beautifully restored. But wind, rain, farming and people taking bricks home have worn much of it away. Reports suggest that around a third of the Ming wall has already disappeared."
+      "text": "It became a World Heritage Site in nineteen eighty-seven. But wind, rain, farming and souvenir hunters have taken a lot. Reports say about a third of the Ming wall is already gone."
     },
     {
       "speaker": "maya",
-      "text": "If someone listening wants to visit, where should they go?"
+      "text": "Then here's my plan for my first visit. Mutianyu, because it's restored and quieter than Badaling."
     },
     {
       "speaker": "daniel",
-      "text": "For your first visit, try Mutianyu. It's restored, it's less crowded than Badaling, and there's a toboggan ride down. If you want the wild, crumbling wall, go with a local guide, and please don't take a brick home."
+      "text": "And there's a toboggan ride down. Just leave the bricks where they are. The wall has lost enough of them to people who loved it."
     },
     {
       "speaker": "maya",
-      "text": "So, to sum up: not one wall but many, built over two thousand years, about twenty-one thousand kilometers in total, held together in places by sticky rice, and sadly not visible from space."
-    },
-    {
-      "speaker": "daniel",
-      "text": "That's the Great Wall in one breath. Thanks for having me, Maya."
-    },
-    {
-      "speaker": "maya",
-      "text": "Thanks, Daniel. And thank you for listening to Long Story Short. See you next time."
+      "text": "Thanks, Daniel. This was Long Story Short."
     }
   ]
 }

@@ -16,9 +16,89 @@ from vis_podcaster.text import fact_heard, tokens, word_count
 
 MAX_HOSTS = 4
 MAX_LINE_WORDS = 70
-WORDS_PER_MINUTE = 150
+WORDS_PER_MINUTE = 170
 _ACRONYM = re.compile(r"\b[A-Z]{2,}s?\b")
 _DIGITS = re.compile(r"\d")
+MAX_SENTENCE_WORDS = 25
+_SENTENCE = re.compile(r"[^.?!]+[.?!]*")
+# Stock phrases that make a dialogue sound generated. Each pattern names the phrase it finds.
+SLOP = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\b(great|good|excellent) question\b",
+        r"\b(that's|that is|it's) (so |really |absolutely )?(fascinating|mind-blowing|incredible)\b",
+        r"\bmind-blowing\b",
+        r"\b(let's|let us) (dive|jump) (in|into|right in)\b",
+        r"\bdeep dive\b",
+        r"\bdelv(e|es|ing)\b",
+        r"\bbuckle up\b",
+        r"\bgame[- ]changer\b",
+        r"\btapestry\b",
+        r"\ba testament to\b",
+        r"\bat the end of the day\b",
+        r"\bin today's (fast-paced )?world\b",
+        r"\b(pivotal|intricate|interplay|meticulous(ly)?|fostering)\b",
+        r"\bnot (just|only) [^.?!,]+, (but|it's)\b",
+        r"\b(isn't|is not|wasn't|was not|it's not) (just |really )?[^.?!,]+[.,] (it's|it is|it was)\b",
+        r"\bnext time on\b",
+        r"\bstay tuned\b",
+    )
+)
+_SLOP_FR = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\b(bonne|excellente|super) question\b",
+        r"\bc'est (vraiment |tellement |absolument )?(fascinant|incroyable|passionnant)\b",
+        r"\bplong(eons|er) (dans|au c(oe|œ)ur)\b",
+        r"\battachez vos ceintures\b",
+        r"\bau final\b",
+        r"\bpas (seulement|juste|simplement) [^.?!,]+, (mais|c'est)\b",
+        r"\bce n'est pas [^.?!,]+[.,] c'est\b",
+        r"\b(restez à l'écoute|à la prochaine)\b",
+    )
+)
+
+
+@dataclass(frozen=True)
+class _Style:
+    slop: tuple[re.Pattern[str], ...]
+    agreement: re.Pattern[str]
+    greeting: re.Pattern[str]
+    recap: re.Pattern[str]
+
+
+# Craft rules for each language. A language without an entry gets only the checks that need no words.
+_STYLES = {
+    "en": _Style(
+        slop=SLOP,
+        # A turn that starts with one of these only agrees. A few are natural; many sound like an echo.
+        agreement=re.compile(
+            r"^(absolutely|exactly|totally|definitely|right|yeah|yes|oh,? wow|wow|true|precisely|indeed)"
+            r"( that| so)?\b[,.!?]",
+            re.IGNORECASE,
+        ),
+        greeting=re.compile(r"^(welcome|hello|hi|hey)\b", re.IGNORECASE),
+        recap=re.compile(
+            r"\b(to sum (it )?up|in summary|to recap|let's recap|the key takeaway|"
+            r"(here's|so) what (i'm|i am) taking (home|away)|my takeaway)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    "fr": _Style(
+        slop=_SLOP_FR,
+        agreement=re.compile(
+            r"^(exactement|absolument|tout à fait|c'est vrai|c'est ça|oui|ouais|effectivement|en effet|"
+            r"carrément|voilà|ah oui|waouh|wow)\b[,.!?]",
+            re.IGNORECASE,
+        ),
+        greeting=re.compile(r"^(bienvenue|bonjour|salut|bonsoir)\b", re.IGNORECASE),
+        recap=re.compile(
+            r"\b(en résumé|pour résumer|en somme|pour récapituler|ce qu'il faut retenir|"
+            r"(voilà )?ce que je retiens)\b",
+            re.IGNORECASE,
+        ),
+    ),
+}
 
 
 class ScriptError(ValueError):
@@ -198,6 +278,47 @@ def _review(ep: Episode, issues: list[Issue]) -> None:
             issues.append(Issue("error", f"critical_facts[{i}]", f"{fact!r} does not occur in the lines"))
     if not ep.sources:
         issues.append(Issue("warning", "sources", "no sources; factual claims are not traceable"))
+    _review_craft(ep, issues)
+
+
+def _review_craft(ep: Episode, issues: list[Issue]) -> None:
+    """Add warnings for writing that sounds generated or is hard to follow by ear."""
+    style = _STYLES.get(ep.language.lower().split("-")[0])
+    for i, line in enumerate(ep.lines):
+        where = f"lines[{i}]"
+        for sentence in _SENTENCE.findall(line.text):
+            if word_count(sentence) > MAX_SENTENCE_WORDS:
+                issues.append(Issue("warning", where, f"has a sentence above {MAX_SENTENCE_WORDS} words; split it"))
+                break
+        text = line.text.replace("’", "'")
+        for pattern in style.slop if style else ():
+            if m := pattern.search(text):
+                issues.append(Issue("warning", where, f"stock phrase {m.group(0)!r}; say something specific"))
+    if style and ep.lines:
+        texts = [line.text.replace("’", "'").strip() for line in ep.lines]
+        if style.greeting.match(texts[0]):
+            issues.append(Issue("warning", "lines[0]", "opens with a greeting; open with the hook, then name the show"))
+        for i in range(max(0, len(ep.lines) - 3), len(ep.lines)):
+            if style.recap.search(texts[i]):
+                issues.append(Issue("warning", f"lines[{i}]", "ends with a recap; end on one takeaway or image"))
+        agreeing = [i for i, text in enumerate(texts) if style.agreement.match(text)]
+        if len(agreeing) > max(2, len(ep.lines) // 8):
+            issues.append(
+                Issue("warning", "lines", f"{len(agreeing)} turns start with bare agreement; react to the content")
+            )
+    if len(ep.hosts) > 1:
+        for host in ep.hosts:
+            turns = [line.text.strip() for line in ep.lines if line.speaker == host.id]
+            asks = sum(t.endswith("?") for t in turns)
+            if len(turns) >= 4 and asks / len(turns) > 0.6:
+                issues.append(
+                    Issue(
+                        "warning",
+                        "hosts",
+                        f"host {host.id!r} ends {asks} of {len(turns)} turns with a question; "
+                        "give them facts, opinions and pushback too",
+                    )
+                )
 
 
 def check_script(data: dict[str, Any] | Episode) -> tuple[Episode | None, tuple[Issue, ...]]:
