@@ -69,6 +69,39 @@ To reach 10 of 10:
 - Change only the lines that the review names. A full rewrite brings new problems in each round.
 - After each round, run `podcast.check` again. Then give the script to a new reviewer.
 
+## Faults that reviews find
+
+Independent reviews of three benchmark episodes took points for these faults. Look for each one
+before you give the script to a reviewer.
+
+| Criterion | Fault | Fix |
+| --- | --- | --- |
+| Roles | The newcomer knows the story: "The pump handle is the famous bit." | A reaction to what was just said: "Wait. So taking the handle off did nothing?" |
+| Roles | The host names a person or a fact before the guest does. | Ask an open question: "Who threw away ten days, and why?" |
+| Listening | The next turn ignores a guess, a joke or a question. | Answer it first, then go on. |
+| Listening | One turn asks two questions, and the answer fits either. | Ask one question in a turn. |
+| Listening | A comparison gives only one of its numbers. | Say both numbers. |
+| Rhythm | Many long blocks in a row, each followed by a quip, with no quick exchange. | Add exchanges of two to six words, an interruption or a story from the other host. |
+| Spoken words | One host starts many turns with "So" and repeats the other's line. | A reaction, a guess or a new question. |
+| Spoken words | A host opens by repeating the other's last words: "Like politicians." | Answer the words, or go on. |
+| Spoken words | Praise or a teacher's line: "Now you've got it." | The next fact. |
+| Spoken words | A staged set-up: one host stops so that the other can finish the sentence. | Each host says their own lines. |
+| Spoken words | A stock joke: "Roll the credits", "I'm telling my doctor". | A joke that only this story can give. |
+| Spoken words | A colon definition: "The idea was miasma: bad air." | Two short sentences: "The big idea was miasma. Bad air." |
+| Spoken words | A public notice: "The World Health Organization's estimate is…" | Say it as a person: "And cholera's still around. More than a million cases a year." |
+| Spoken words | A list of noun fragments, or two numbers in one sentence. | Full sentences, with one number in each. |
+| Spoken words | A pronoun that points to the wrong noun by ear. | Repeat the noun. |
+| Spoken words | "Not X, it's Y": "On ne prolonge pas une antenne, on prolonge une caisse." | Say Y. |
+| Facts | An absolute word that the source does not support: "Nobody knew about germs." | Narrow it: "Germs were only a theory then." |
+| Facts | A bet or a score with the wrong verdict. | Change the bet so that the verdict agrees with the source. |
+| Facts | "Then" or "for years" puts an event at the wrong time. | Give the date or the order that the source gives. |
+| Facts | A counterfactual or "nobody can prove it" that no source makes. | Remove it, or say what the host cannot prove: "I can't prove it. Neither can you." |
+| Shape | A segment change that does not name the new time or place. | "Now, fifteen eighty-two." |
+| Shape | A jump to today and back without a marker. | Mark both moves, or put today in its own segment. |
+| Ending | The conclusion comes two or three times, from both hosts. | One line or image, from one host. |
+| Ending | The last line changes the words of the hook: "The pump came to her." | Repeat the hook exactly: "The outbreak came to her." |
+| Ending | An image that does not explain itself. | Say why the image matters in the same line. |
+
 ## Phrases that sound generated
 
 Avoid "delve", "deep dive", "tapestry", "a testament to", "pivotal", "intricate", "interplay",

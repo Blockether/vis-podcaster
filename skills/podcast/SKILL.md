@@ -18,12 +18,13 @@ judges the finished file against measurable quality gates.
    as the host `voice`. Without `transcript`, speech recognition writes it. Use
    `podcast.update_voice` to rename a voice and `podcast.remove_voice` to delete it. Clone only a
    voice whose owner agrees.
-3. Research the topic and write the script as JSON. Follow [Write a good episode](#write-a-good-episode)
-   and [Script rules](#script-rules).
+3. Research the topic and write the script as JSON. Follow [Write a good episode](#write-a-good-episode),
+   [Script rules](#script-rules) and [Faults that reviews find](references/craft.md#faults-that-reviews-find).
 4. Check the facts before you render. The quality gates measure only what the listener hears, not
    whether it is true. Follow [Check the facts](#check-the-facts).
    Then score the script with [the review criteria](references/craft.md#review-an-episode). Revise it
    until it scores 10 of 10. A reviewer who did not write the script gives the fairest score.
+   Change only the lines that the review names: a full rewrite brings new faults.
 5. Run `print(await podcast.check(script))`. Fix every error. Read every warning and fix it, or
    tell the person why it stays.
 6. Run `r = await podcast.render(script, "out/episode")`, then `print(r)`. On `qwen3-tts-mlx`, a
@@ -72,15 +73,20 @@ Write the episode the way a radio producer does: for a listener who cannot scrol
    open with "Welcome to".
 3. **A conversation, not a shared narration.** Choose a [format](#choose-a-format). Give each fact
    of the story to one host. The other host never continues the story with facts of the same
-   story; two voices that read one story in turns sound like a split audiobook.
+   story; two voices that read one story in turns sound like a split audiobook. The newcomer also
+   does not know which part is famous, and the host names no person before the guest does.
 4. **Segments with questions.** Give each segment one question, then answer it. Mark each change
-   of topic: "That's the history. Now, the chemistry."
+   of topic: "That's the history. Now, the chemistry." Name the new time or place: "Now, fifteen
+   eighty-two." "Back to Rome" marks nothing when the listener is still in Rome.
 5. **Story, then meaning.** Tell a concrete event with a person, a place and a time, then say
    what it means. Use one vivid example instead of three abstract claims.
 6. **Specific reactions.** React to the fact that was said: "Wait, rice? In mortar?" Do not
-   start turns with "Great question", "Absolutely" or "Exactly".
+   start turns with "Great question", "Absolutely" or "Exactly". When a host guesses, jokes or
+   asks, the next turn answers that first: "Your guess is closer than London's." Then it adds the
+   next fact.
 7. **Earned ending.** End on the takeaway or one image, said once. Do not list everything again,
-   and do not announce it: "Here's what I'm taking home" is a recap too.
+   and do not announce it: "Here's what I'm taking home" is a recap too. One host says it; the
+   other host does not sum it up again.
 
 Plan the length at about 170 words a minute, the speed of `qwen3-tts-mlx`: 750 words is about four
 and a half minutes.
@@ -91,12 +97,17 @@ Each episode in the first benchmark passed every gate and still had factual erro
 checks on the finished script:
 
 1. Give each factual claim a source in `sources`. Open each URL and confirm that it says the claim.
-2. Check the order of events. Confirm that "before", "after", "earlier" and "later" agree with
+2. Check the order of events. Confirm that "before", "after", "then" and "for years" agree with
    the dates.
 3. Check each direction word: "ahead" or "behind", "north" or "south", "winter" or "summer".
 4. Do the arithmetic between lines. Two numbers in different turns must agree with each other.
 5. Check each date for anachronism: a technology, a name or a title that did not exist yet.
 6. Remove popular myths, or tell them as myths with the correction.
+7. Narrow each absolute word to what the source says: "nobody", "never", "always", "the first".
+   "Nobody knew about germs" was wrong; "Germs were only a theory then" is correct.
+8. Check each verdict between the hosts. A won bet, a score or "you're wrong" must agree with the
+   source.
+9. Remove a counterfactual or a "nobody can prove it" claim that no source makes.
 
 ### Choose a format
 
@@ -161,7 +172,11 @@ specific. For other languages, it checks only sentence length and the question s
 - Keep each turn under 70 words; most turns need 10 to 50. Vary their length. Alternate the
   speakers. Give no host more than 75% of the words.
 - Use few numbers. Round them and give one comparison: "about thirteen thousand miles, half the
-  way around the Earth".
+  way around the Earth". Put at most one number in a sentence. When you compare two numbers, say
+  both: "Montmartre, a hundred and thirty metres. The tower, more than three hundred."
+- Say "the year three twenty-five" when a bare number can sound like a clock time.
+- Repeat the noun when a pronoun can point to the wrong noun. In French, "la" and "elle" point to
+  the last feminine noun: write "Si on garde la tour, c'est parce qu'elle sert", not "On la garde".
 - In English, write numbers as words, such as "thirteen sixty-eight". Digits make the engine guess.
 - In another language, write a number as digits and give its words in `pronunciations`, such as
   `"1889": "dix-huit cent quatre-vingt-neuf"`. The engine reads the words, and the check accepts a
@@ -183,6 +198,7 @@ specific. For other languages, it checks only sentence length and the question s
 | A line in `r.unverified` | `print(r)` gives its WER and pace. Read `heard` in its take. Simplify the sentence or add a pronunciation. |
 | WER above the gate | Find the lines with the highest `wer` in `r.takes` and fix them as above. |
 | WER above the gate, but every take is verified | Compare `r.quality.transcript` with the `heard` text of each take. Fix only a line whose own take is wrong. Else the judge misheard the file; this happens most in French. Report it. |
+| Both recognizers hear the same wrong words | Words run together, such as "ta tour" heard as "tatoué". Rephrase the words: "pour toi, la tour". |
 | A missing critical fact | Say the fact more plainly, or move it to a short sentence of its own. |
 | Pace outside the gate | Shorten long turns or add `pause` values. |
 | Loudness or peak | Report it; mastering sets them, so this means a broken input file. |
