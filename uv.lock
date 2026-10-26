@@ -2485,8 +2485,8 @@ wheels = [
 
 [[package]]
 name = "vis-agent"
-version = "0.3.3"
-source = { editable = "../vis/packages/vis-agent" }
+version = "0.3.4"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "harbor" },
     { name = "jsonschema" },
@@ -2495,18 +2495,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "referencing" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "harbor", specifier = "==0.24.0" },
-    { name = "jsonschema", specifier = ">=4.23,<5" },
-    { name = "litellm", specifier = "==1.103.1" },
-    { name = "packaging", specifier = ">=24" },
-    { name = "pdoc", marker = "extra == 'docs'", specifier = "==16.0.0" },
-    { name = "pydantic", specifier = "==2.14.1" },
-    { name = "referencing", specifier = ">=0.28.4" },
+sdist = { url = "https://files.pythonhosted.org/packages/27/e5/7613c3bc5eae7b716b88beb4ad9891d5ee2c27a913916241de5df65fef04/vis_agent-0.3.4.tar.gz", hash = "sha256:877f8c639950c64275f26158f6b2e60ec1f51c7a6a6d18e5db164cef3d3325cf", size = 491726, upload-time = "2026-10-26T10:53:50.852Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/24/b1/b64f6f482ffa9bdd1013a5b547248a5f62600b87381f299eb1b406fca2b0/vis_agent-0.3.4-py3-none-any.whl", hash = "sha256:39ab6dd3627997bc80282f4bc5cbb0f8afb81cea276491fb6d67392cda874bd7", size = 327056, upload-time = "2026-10-26T10:53:49.327Z" },
 ]
-provides-extras = ["docs"]
 
 [[package]]
 name = "vis-podcaster"
@@ -2523,7 +2515,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "vis-agent", editable = "../vis/packages/vis-agent" }]
+requires-dist = [{ name = "vis-agent", specifier = ">=0.3.4" }]
 
 [package.metadata.requires-dev]
 dev = [
