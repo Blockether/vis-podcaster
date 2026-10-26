@@ -22,6 +22,8 @@ judges the finished file against measurable quality gates.
    and [Script rules](#script-rules).
 4. Check the facts before you render. The quality gates measure only what the listener hears, not
    whether it is true. Follow [Check the facts](#check-the-facts).
+   Then score the script with [the review criteria](references/craft.md#review-an-episode). Revise it
+   until it scores 10 of 10. A reviewer who did not write the script gives the fairest score.
 5. Run `print(await podcast.check(script))`. Fix every error. Read every warning and fix it, or
    tell the person why it stays.
 6. Run `r = await podcast.render(script, "out/episode")`, then `print(r)`. On `qwen3-tts-mlx`, a

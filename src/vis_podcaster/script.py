@@ -272,9 +272,9 @@ def _review(ep: Episode, issues: list[Issue]) -> None:
             issues.append(Issue("warning", "hosts", f"host {hid!r} never speaks"))
         elif len(ep.hosts) > 1 and count / total > 0.75:
             issues.append(Issue("warning", "hosts", f"host {hid!r} speaks {count / total:.0%} of the words"))
-    script_tokens = tokens(ep.text)
+    script_tokens = tokens(ep.text, language=ep.language)
     for i, fact in enumerate(ep.critical_facts):
-        if not fact_heard(fact, script_tokens, tolerance=0.0):
+        if not fact_heard(fact, script_tokens, tolerance=0.0, language=ep.language):
             issues.append(Issue("error", f"critical_facts[{i}]", f"{fact!r} does not occur in the lines"))
     if not ep.sources:
         issues.append(Issue("warning", "sources", "no sources; factual claims are not traceable"))

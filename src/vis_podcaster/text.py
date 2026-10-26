@@ -1,7 +1,8 @@
 """Text rules that the checks share: normalization, word error rate and fact recall.
 
 The rules make a script and an ASR transcript comparable. They expand digits, ordinals
-and symbols into words, so "1987" in a transcript can match "nineteen eighty-seven".
+and symbols into words, so "1987" in a transcript can match "nineteen eighty-seven". French
+text gets French number words and one form for endings that sound the same.
 """
 
 from __future__ import annotations
@@ -130,6 +131,62 @@ def _number_forms(token: str) -> tuple[str, ...]:
     return tuple(forms)
 
 
+_FR_ONES = ("zero", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf", "dix", "onze", "douze")
+_FR_ONES += ("treize", "quatorze", "quinze", "seize")
+_FR_TENS = ("", "dix", "vingt", "trente", "quarante", "cinquante", "soixante")
+_FR_SCALES = ((10**9, "milliard"), (10**6, "million"), (1000, "mille"))
+
+
+def cardinal_fr(n: int) -> str:
+    """Spell a nonnegative integer below one trillion in French words, with spaces for hyphens."""
+    if n < 0 or n >= 10**12:
+        raise ValueError(f"cannot spell {n}")
+    if n < 17:
+        return _FR_ONES[n]
+    if n < 20:
+        return "dix " + _FR_ONES[n - 10]
+    if n < 100:
+        tens, unit = divmod(n, 10)
+        if tens in (7, 9):
+            # 70 is "soixante-dix" and 90 is "quatre-vingt-dix": the tens take 10 to 19.
+            head, unit = ("soixante", unit + 10) if tens == 7 else ("quatre vingt", unit + 10)
+        else:
+            head = "quatre vingt" if tens == 8 else _FR_TENS[tens]
+        if unit == 0:
+            return head
+        joiner = " et " if unit in (1, 11) and tens not in (8, 9) else " "
+        return head + joiner + cardinal_fr(unit)
+    if n < 1000:
+        hundreds, rest = divmod(n, 100)
+        head = "cent" if hundreds == 1 else cardinal_fr(hundreds) + " cent"
+        return head + ("" if rest == 0 else " " + cardinal_fr(rest))
+    for size, name in _FR_SCALES:
+        if n >= size:
+            count, rest = divmod(n, size)
+            head = name if (count == 1 and size == 1000) else cardinal_fr(count) + " " + name
+            return head + ("" if rest == 0 else " " + cardinal_fr(rest))
+    raise AssertionError(n)
+
+
+def _fold_fr(word: str) -> str:
+    """Give French words that sound the same one form.
+
+    "sauvée", "sauvés" and "sauver" become "sauve"; "paie", "paye" and "paix" become "pai".
+    """
+    word = word.replace("ay", "ai")
+    if word == "ils":
+        return "il"
+    if len(word) >= 4 and word[-1] in "sx" and not word.endswith("ss"):
+        word = word[:-1]
+    if len(word) >= 6 and word.endswith("ent"):
+        word = word[:-2]
+    if len(word) >= 5 and word[-2:] in ("ee", "er", "ez"):
+        word = word[:-1]
+    if len(word) >= 4 and word[-1] == "e" and word[-2] in "aiou":
+        word = word[:-1]
+    return word
+
+
 def _plain(text: str) -> str:
     text = text.lower().replace("’", "'").replace("‘", "'")
     for letter, plain in _LIGATURES.items():
@@ -147,16 +204,22 @@ def _clean(text: str) -> str:
     return re.sub(r"[-–—/]", " ", text)
 
 
-def tokens(text: str, *, forms: dict[str, str] | None = None) -> list[str]:
-    """Normalize text to lowercase word tokens. Digits become words.
+def tokens(text: str, *, forms: dict[str, str] | None = None, language: str = "en") -> list[str]:
+    """Normalize text to lowercase word tokens. Digits become words of `language`.
 
-    `forms` picks the spoken form for a numeric token; else the first form applies.
+    `forms` picks the spoken form for a numeric token; else the first form applies. In French,
+    whole numbers become French words and homophone endings get one form; see `_fold_fr`.
     """
+    french = language.lower().startswith("fr")
     out: list[str] = []
     for raw in _TOKEN.findall(_NUMBER.sub(lambda m: f" {m.group(0)} ", _clean(text))):
-        if _NUMBER.fullmatch(raw):
+        if french and raw.isdigit():
+            out.extend(_fold_fr(w) for w in cardinal_fr(int(raw)).split())
+        elif _NUMBER.fullmatch(raw):
             choice = (forms or {}).get(raw) or _number_forms(raw)[0]
             out.extend(choice.split())
+        elif french:
+            out.append(_fold_fr(raw))
         else:
             for pattern, plain in _SPELLINGS:
                 raw = pattern.sub(plain, raw)
@@ -220,23 +283,30 @@ def proper_names(text: str) -> frozenset[str]:
     return frozenset(w.lower() for w in found)
 
 
-def word_errors(reference: str, hypothesis: str, *, names: frozenset[str] = frozenset()) -> WordErrors:
+def word_errors(
+    reference: str, hypothesis: str, *, names: frozenset[str] = frozenset(), language: str = "en"
+) -> WordErrors:
     """Compare two texts after normalization. Numbers in the hypothesis take their best spoken form.
 
     WER is (substitutions + deletions + insertions) / reference words. A heard word that is a
     spelling variant of one of `names`, such as "Shanghai" for "Shanhai", counts as that name.
     """
-    ref = tokens(reference)
+    ref = tokens(reference, language=language)
     chosen: dict[str, str] = {}
     numbers = dict.fromkeys(m.group(0) for m in _NUMBER.finditer(_clean(hypothesis)))
     for token in numbers:
         options = _number_forms(token)
         if len(options) > 1:
             chosen[token] = min(
-                options, key=lambda o: sum(_distance(ref, tokens(hypothesis, forms={**chosen, token: o})))
+                options,
+                key=lambda o: sum(_distance(ref, tokens(hypothesis, forms={**chosen, token: o}, language=language))),
             )
     # A heard filler that the script does not have is not an error.
-    hyp = [w for w in _merge_compounds(ref, tokens(hypothesis, forms=chosen)) if w not in FILLERS or w in ref]
+    hyp = [
+        w
+        for w in _merge_compounds(ref, tokens(hypothesis, forms=chosen, language=language))
+        if w not in FILLERS or w in ref
+    ]
     if names:
         hyp = [_respell(tuple(names), [w])[0] if w not in ref else w for w in hyp]
     s, d, n = _distance(ref, hyp)
@@ -244,8 +314,8 @@ def word_errors(reference: str, hypothesis: str, *, names: frozenset[str] = froz
 
 
 @lru_cache(maxsize=256)
-def _fact_tokens(fact: str) -> tuple[str, ...]:
-    return tuple(tokens(fact))
+def _fact_tokens(fact: str, language: str) -> tuple[str, ...]:
+    return tuple(tokens(fact, language=language))
 
 
 def _respell(want: tuple[str, ...], heard: list[str]) -> list[str]:
@@ -257,12 +327,14 @@ def _respell(want: tuple[str, ...], heard: list[str]) -> list[str]:
     return out
 
 
-def fact_heard(fact: str, transcript_tokens: list[str], *, tolerance: float = 0.2, fuzzy: bool = False) -> bool:
+def fact_heard(
+    fact: str, transcript_tokens: list[str], *, tolerance: float = 0.2, fuzzy: bool = False, language: str = "en"
+) -> bool:
     """Tell whether a transcript contains a fact phrase, with at most `tolerance` word errors.
 
     `fuzzy` accepts spelling variants of names longer than three letters.
     """
-    want = list(_fact_tokens(fact))
+    want = list(_fact_tokens(fact, language))
     if fuzzy and want:
         transcript_tokens = _respell(tuple(want), transcript_tokens)
     if not want:

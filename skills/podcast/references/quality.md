@@ -32,11 +32,15 @@ outside the default range in `Gates`.
 - Recognizers misspell rare names. Such errors raise WER although the audio can be correct.
 - `parakeet-local` can hear the first words of a line in another language as English, such as
   "Exactly" for "Exactement". The judge check of a failed take removes most of these errors.
-- Digits become words only in English. In another language, a transcript with "1889" matches only
-  a script line that has the digits too. See the number rule in the skill.
-- Words that sound the same, such as French "il reproche" and "ils reprochent", count as errors.
+- Digits become words in English and French. In another language, a transcript with "1889" matches
+  only a script line that has the digits too. See the number rule in the skill.
+- In French, endings that sound the same count as one word: "sauvée" and "sauver", "il reproche"
+  and "ils reprochent". Other homophones, such as "cent" and "sans", still count as errors.
 - `parakeet-local` can drop a sentence of audio longer than about ten seconds that does not start
   at a sentence. Use it for single lines only.
+- The judge `vibevoice-asr-local` gets no language hint. On French it can measure 7 to 8% WER on
+  audio that `parakeet-local` hears at 2%, line by line. Shorter judge parts do not help. Compare
+  the take transcripts in `manifest.json` before you change a line.
 
 ## Criteria for a better producer
 

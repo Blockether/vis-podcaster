@@ -44,6 +44,31 @@ marks a rule that `podcast.check` tests; the other rules need your judgement.
 | Do not let one host say what the other is about to say. | [S3], [S12] | |
 | Listen to a draft render before you finish. | [S3], [S5] | |
 
+## Review an episode
+
+Score the script before you render it, against these ten criteria. Give one point for each
+criterion with no problem. An episode is ready at 10 of 10. For each missing point, name the
+line and write the replacement.
+
+| # | Criterion | A point needs |
+| --- | --- | --- |
+| 1 | Hook | The first two or three lines raise a question or a scene. The answer comes later. |
+| 2 | Roles | Each fact of the story belongs to one host. The other host never continues the narration. |
+| 3 | Listening | Each turn answers the turn before it: a guess, a joke, a story or a question. No question goes unanswered. |
+| 4 | Rhythm | Turn lengths vary. Quick exchanges of two to six words occur. No run of more than four long-block-then-quip pairs. |
+| 5 | Two people | Each host has their own attitude, words and running thread. You cannot swap their lines. |
+| 6 | Spoken words | Every line sounds said, not written: short sentences, contractions, no lists of facts, no stock phrases, no forced jokes. |
+| 7 | Tension | A real disagreement, or a wrong belief that evidence corrects. The episode says why the topic matters. |
+| 8 | Facts | Every claim is sourced and correct, with no myth, anachronism or contradiction between lines. |
+| 9 | Shape | One point. Each change of segment is marked. Nothing is said twice without a reason. |
+| 10 | Ending | One image or line that closes the loop to the hook. No recap, no announced takeaway, no flat sign-off. |
+
+To reach 10 of 10:
+
+- Take a point only for a problem that a listener would notice, or for a broken rule. Do not take a point for taste.
+- Change only the lines that the review names. A full rewrite brings new problems in each round.
+- After each round, run `podcast.check` again. Then give the script to a new reviewer.
+
 ## Phrases that sound generated
 
 Avoid "delve", "deep dive", "tapestry", "a testament to", "pivotal", "intricate", "interplay",

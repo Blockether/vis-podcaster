@@ -392,15 +392,19 @@ class Podcaster:
                 wav.write_bytes(audio.encode_wav(clip))
                 meta.write_text(json.dumps(saved))
             heard = saved["heard"]
-            wer = min(word_errors(spoken, heard, names=names).wer, word_errors(line.text, heard, names=names).wer)
+            lang = episode.language
+            wer = min(
+                word_errors(spoken, heard, names=names, language=lang).wer,
+                word_errors(line.text, heard, names=names, language=lang).wer,
+            )
             if wer > max_wer and self._judge_engine not in (None, self._asr_engine):
                 # Parakeet can hear a French line as English. A take fails only when the judge mishears it too.
                 if "judged" not in saved:
                     saved["judged"] = self._hear(clip, self._judge_engine)
                     meta.write_text(json.dumps(saved))
                 judged = min(
-                    word_errors(spoken, saved["judged"], names=names).wer,
-                    word_errors(line.text, saved["judged"], names=names).wer,
+                    word_errors(spoken, saved["judged"], names=names, language=lang).wer,
+                    word_errors(line.text, saved["judged"], names=names, language=lang).wer,
                 )
                 if judged < wer:
                     wer, heard = judged, saved["judged"]
@@ -593,20 +597,26 @@ class Podcaster:
     ) -> Quality:
         """Measure `audio_file` like `evaluate`. `heard` is the judge transcript when the caller has it."""
         if isinstance(script, str) and not script.lstrip().startswith("{") and not Path(script).expanduser().exists():
-            reference, spoken, facts = script, script, ()
+            reference, spoken, facts, lang = script, script, (), "en"
         else:
             episode = load_episode(script)
             reference, spoken = episode.text, episode.spoken(episode.text)
             facts = tuple((f, episode.spoken(f)) for f in episode.critical_facts)
+            lang = episode.language
         clip = audio.decode(audio_file, rate=16000)
         if heard is None:
             heard = self._judge(clip, timeout)
-        errors = min(word_errors(reference, heard), word_errors(spoken, heard), key=lambda e: e.wer)
-        heard_tokens = tokens(heard)
+        errors = min(
+            word_errors(reference, heard, language=lang), word_errors(spoken, heard, language=lang), key=lambda e: e.wer
+        )
+        heard_tokens = tokens(heard, language=lang)
         missing = tuple(
             f
             for f, said in facts
-            if not (fact_heard(f, heard_tokens, fuzzy=True) or fact_heard(said, heard_tokens, fuzzy=True))
+            if not (
+                fact_heard(f, heard_tokens, fuzzy=True, language=lang)
+                or fact_heard(said, heard_tokens, fuzzy=True, language=lang)
+            )
         )
         loud = audio.measure(audio_file)
         pauses = audio.silences(clip, min_seconds=1.0)

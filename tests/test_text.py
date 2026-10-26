@@ -1,6 +1,16 @@
 """Normalization, WER and fact rules that the quality gates rely on."""
 
-from vis_podcaster.text import cardinal, fact_heard, ordinal, proper_names, tokens, word_count, word_errors, year
+from vis_podcaster.text import (
+    cardinal,
+    cardinal_fr,
+    fact_heard,
+    ordinal,
+    proper_names,
+    tokens,
+    word_count,
+    word_errors,
+    year,
+)
 
 
 def test_numbers_are_spelled():
@@ -72,6 +82,26 @@ def test_accents_and_elision_make_french_words_comparable():
 def test_an_elision_counts_as_one_spoken_word():
     assert word_count("C'est l'année de l'Exposition") == 4
     assert word_count("It's the tower") == 3
+
+
+def test_french_numbers_are_french_words():
+    assert cardinal_fr(71) == "soixante et onze" and cardinal_fr(91) == "quatre vingt onze"
+    assert cardinal_fr(1889) == "mille huit cent quatre vingt neuf" and cardinal_fr(2_000_000) == "deux million"
+    # The tour-eiffel judge wrote words for some numbers and digits for others.
+    assert (
+        word_errors(
+            "En 1889, 150 000 visiteurs.",
+            "En mille huit cent quatre-vingt-neuf, cent cinquante mille visiteurs.",
+            language="fr",
+        ).wer
+        == 0
+    )
+    assert word_errors("En 1889.", "En mille huit cent quatre-vingt-neuf.").wer > 0
+
+
+def test_french_homophone_endings_are_not_errors():
+    heard = "Prolonger pour qui ? Ils payent. Accusé. Il reproche."
+    assert word_errors("Prolongée pour qui ? Ils paient. Accusée. Ils reprochent.", heard, language="fr").wer == 0
 
 
 def test_french_plural_number_words_match_their_singular():
