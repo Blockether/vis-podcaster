@@ -1,10 +1,10 @@
 [project]
 name = "vis-podcaster"
-version = "0.1.0"
+version = "0.1.1"
 description = "Two-host podcasts with Vis speech engines, ASR-verified takes and quality gates."
 keywords = ["podcast", "speech"]
 requires-python = ">=3.12"
-dependencies = ["vis-agent>=0.3.4"]
+dependencies = ["vis-agent>=0.5.2"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
