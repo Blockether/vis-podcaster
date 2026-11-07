@@ -7,7 +7,18 @@ from pathlib import Path
 
 import blockether.vis.extension as vis
 
-from vis_podcaster import Gates, Podcaster, Quality, QwenSpeech, Render, ScriptCheck, VoiceChoice
+from vis_podcaster import (
+    Book,
+    Gates,
+    Podcaster,
+    Quality,
+    QwenSpeech,
+    Render,
+    ScriptCheck,
+    SeriesReport,
+    VoiceChoice,
+    series,
+)
 
 
 def _voices_activity(*, phase, result, **_):
@@ -58,12 +69,32 @@ def _render_activity(*, phase, result, **_):
         return None
     q = result.quality
     verdict = "passed" if q.is_passed else f"{len(q.failures)} gate(s) failed"
-    blocks = (vis.ActivityAudio(result.attachment_id, "Episode"),) if result.attachment_id else ()
+    state = "unchanged, " if result.is_skipped else f"{len(result.changed)} changed, " if result.changed else ""
+    audios = ((result.attachment_id, "Episode"), (result.review_attachment_id, "Changes"))
+    blocks = tuple(vis.ActivityAudio(row, label) for row, label in audios if row)
     return vis.ActivityPresentation(
         "Render podcast",
-        f"{q.seconds / 60:.1f} min, {len(result.takes)} lines, WER {q.wer:.1%}, {verdict}",
+        f"{state}{q.seconds / 60:.1f} min, {len(result.takes)} lines, WER {q.wer:.1%}, {verdict}",
         (*blocks, vis.ActivityText(str(result))),
     )
+
+
+def _assemble_activity(*, phase, result, **_):
+    if phase != "success":
+        return None
+    rows = tuple((c.title, f"{c.start / 60:.1f}", f"{(c.end - c.start) / 60:.1f}") for c in result.chapters)
+    return vis.ActivityPresentation(
+        "Assemble audiobook",
+        str(result),
+        (vis.ActivityTable(("Chapter", "Start (min)", "Length (min)"), rows[:200]),),
+    )
+
+
+def _series_activity(*, phase, result, **_):
+    if phase != "success":
+        return None
+    verdict = "passed" if result.is_passed else f"{len(result.issues)} issue(s)"
+    return vis.ActivityPresentation("Check podcast series", verdict, (vis.ActivityText(str(result)[:4000]),))
 
 
 def _here(value):
@@ -118,7 +149,14 @@ class VisPodcaster(Podcaster):
 
     @vis.method(activity=vis.Activity(label="Render podcast", render=_render_activity))
     def render(
-        self, script: str | dict, out_dir: str, *, max_takes: int = 3, max_wer: float = 0.08, gates: Gates | None = None
+        self,
+        script: str | dict,
+        out_dir: str,
+        *,
+        max_takes: int = 3,
+        max_wer: float = 0.08,
+        gates: Gates | None = None,
+        force: bool = False,
     ) -> Render:
         def progress(done: int, total: int, message: str) -> None:
             vis.publish_activity(
@@ -126,13 +164,20 @@ class VisPodcaster(Podcaster):
             )
 
         result = super().render(
-            _here(script), _here(out_dir), max_takes=max_takes, max_wer=max_wer, gates=gates, progress=progress
+            _here(script),
+            _here(out_dir),
+            max_takes=max_takes,
+            max_wer=max_wer,
+            gates=gates,
+            progress=progress,
+            force=force,
         )
         try:
             row = vis.attach(result.audio, label="Episode", audience="user")
         except Exception:  # noqa: BLE001 - without a python_execution block there is no transcript to attach to
             return result
-        return dataclasses.replace(result, attachment_id=row["id"])
+        review = vis.attach(result.review, label="Changes", audience="user")["id"] if result.review else None
+        return dataclasses.replace(result, attachment_id=row["id"], review_attachment_id=review)
 
     @vis.method(activity=vis.Activity(label="Evaluate podcast", render=_evaluate_activity))
     def evaluate(
@@ -140,10 +185,38 @@ class VisPodcaster(Podcaster):
     ) -> Quality:
         return super().evaluate(_here(audio_file), _here(script), gates=gates, timeout=timeout)
 
+    @vis.method(activity=vis.Activity(label="Check podcast series", show_start=False, render=_series_activity))
+    def check_series(self, scripts: list[str | dict]) -> SeriesReport:
+        return series.check_series([_here(s) for s in scripts])
+
+    @vis.method(activity=vis.Activity(label="Assemble audiobook", render=_assemble_activity))
+    def assemble(
+        self,
+        renders: list[str],
+        out_file: str,
+        *,
+        gap: float = 1.6,
+        lufs: float = -16.0,
+        title: str | None = None,
+        artist: str | None = None,
+        timeout: float = 1800,
+    ) -> Book:
+        return series.assemble(
+            [_here(r) for r in renders],
+            _here(out_file),
+            gap=gap,
+            lufs=lufs,
+            title=title,
+            artist=artist,
+            timeout=timeout,
+        )
+
 
 # The overrides only bind Activities; doc() shows the library contract.
 for _name in ("voices", "add_voice", "update_voice", "remove_voice", "check", "render", "evaluate"):
     getattr(VisPodcaster, _name).__doc__ = getattr(Podcaster, _name).__doc__
+for _name in ("check_series", "assemble"):
+    getattr(VisPodcaster, _name).__doc__ = getattr(series, _name).__doc__
 
 
 vis.register_extension(
@@ -153,6 +226,7 @@ vis.register_extension(
         alias="podcast",
         prompt=(
             "podcast: write a script, check it with podcast.check(script), then podcast.render(script, out_dir). "
+            "For a series: podcast.check_series(scripts), then podcast.assemble(render_dirs, 'book.m4b'). "
             "Read doc('vis-podcaster/podcast') before the first episode."
         ),
         symbols=[vis.Symbol(VisPodcaster(QwenSpeech(_speech)), name="podcast")],

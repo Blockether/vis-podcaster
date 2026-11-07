@@ -102,6 +102,17 @@ before you give the script to a reviewer.
 | Ending | The last line changes the words of the hook: "The pump came to her." | Repeat the hook exactly: "The outbreak came to her." |
 | Ending | An image that does not explain itself. | Say why the image matters in the same line. |
 
+## Faults that the audio shows
+
+These faults pass a review of the script, but the rendered audio or its checks show them.
+
+| Fault | Effect | Fix |
+| --- | --- | --- |
+| The episodes of a series open or close with the same words. | The listener hears the same opening in each episode. `podcast.check_series` reports it. | Write a different first and last line for each episode. |
+| In a critical fact, a word that ends in "r" comes before a word that starts with a vowel. | A British voice links the two words, the recognizers hear other words and the fact fails. | Change the order of the words, or put a short word between them. |
+| A line of one word that starts with a vowel, such as "Eight." | The checks often hear another word. | Add a word: "Eight of them." |
+| A short line that depends on a homophone, such as "Two." | The checks count "two", "too" and "to" as one word, so they cannot find the wrong word. | Listen to the line, or add words that make the meaning clear. |
+
 ## Phrases that sound generated
 
 Avoid "delve", "deep dive", "tapestry", "a testament to", "pivotal", "intricate", "interplay",

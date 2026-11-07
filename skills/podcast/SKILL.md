@@ -19,7 +19,8 @@ judges the finished file against measurable quality gates.
    `podcast.update_voice` to rename a voice and `podcast.remove_voice` to delete it. Clone only a
    voice whose owner agrees.
 3. Research the topic and write the script as JSON. Follow [Write a good episode](#write-a-good-episode),
-   [Script rules](#script-rules) and [Faults that reviews find](references/craft.md#faults-that-reviews-find).
+   [Script rules](#script-rules), [Faults that reviews find](references/craft.md#faults-that-reviews-find)
+   and [Faults that the audio shows](references/craft.md#faults-that-the-audio-shows).
 4. Check the facts before you render. The quality gates measure only what the listener hears, not
    whether it is true. Follow [Check the facts](#check-the-facts).
    Then score the script with [the review criteria](references/craft.md#review-an-episode). Revise it
@@ -30,10 +31,20 @@ judges the finished file against measurable quality gates.
 6. Run `r = await podcast.render(script, "out/episode")`, then `print(r)`. On `qwen3-tts-mlx`, a
    five-minute episode takes about five minutes: three for the lines and two for the final
    judgement. The next line speaks while speech recognition checks the current one.
-7. Read the gates in `r.quality`. When a gate fails, follow [Repair](#repair) and render again.
-   Takes are cached, so only changed lines are spoken again.
-8. Give the person `out/episode/episode.mp3`, `episode.vtt` and the quality report. State any
+7. Read the gates in `r.quality`. When a gate fails, follow [Repair](#repair) and render again
+   into the same directory. Only the changed lines are spoken and judged again. The other lines
+   keep their takes and their pauses, also when you add or remove a line.
+8. After a render that changed lines, listen to `out/episode/changes.mp3`, or give it to the
+   person. It holds only the lines whose audio changed, each with one second before it, so a
+   review does not need the full episode. `r.changed` lists these lines.
+9. Give the person `out/episode/episode.mp3`, `episode.vtt` and the quality report. State any
    gate that still fails and any line in `r.unverified`.
+
+A render of an unchanged script, with the same voices, settings and podcaster code, returns the
+earlier result at once. `force=True` builds the files again from the cached takes, and the judge
+hears every part again. For new takes, change `seed`, or delete `out/episode/takes`: the next render
+then speaks every line again. Do this also when a new clip replaces a cloned voice and keeps its id:
+the cache knows a voice only by its id.
 
 ## Best voices
 
@@ -196,12 +207,25 @@ specific. For other languages, it checks only sentence length and the question s
 | Failure | Action |
 | --- | --- |
 | A line in `r.unverified` | `print(r)` gives its WER and pace. Read `heard` in its take. Simplify the sentence or add a pronunciation. |
-| WER above the gate | Find the lines with the highest `wer` in `r.takes` and fix them as above. |
-| WER above the gate, but every take is verified | Compare `r.quality.transcript` with the `heard` text of each take. Fix only a line whose own take is wrong. Else the judge misheard the file; this happens most in French. Report it. |
+| WER above the gate | `print(r)` lists the three judge parts with the most errors, with their lines and times. Find the lines with the highest `wer` in `r.takes` and fix them as above. |
+| WER above the gate, but every take is verified | Compare each part in `r.quality.parts` with the `heard` text of the takes of its lines. Fix only a line whose own take is wrong. Else the judge misheard the file; this happens most in French. Report it. |
 | Both recognizers hear the same wrong words | Words run together, such as "ta tour" heard as "tatoué". Rephrase the words: "pour toi, la tour". |
-| A missing critical fact | Say the fact more plainly, or move it to a short sentence of its own. |
+| A missing critical fact | `print(r)` gives the line and the time of the fact, and what the judge and the take check heard. Listen at that time. Say the fact more plainly, or move it to a short sentence of its own. |
+| "Heard only by a second engine" | The judge missed the fact, but the take check of its line heard it, so the fact counts. Listen at the time that the report gives. Rephrase the line only when you also cannot hear the fact. |
 | Pace outside the gate | Shorten long turns or add `pause` values. |
 | Loudness or peak | Report it; mastering sets them, so this means a broken input file. |
+
+## Make a series
+
+1. Write each episode as its own script, with the same hosts, voices and `pronunciations`.
+2. Run `print(await podcast.check_series([script1, script2, script3]))`. It finds episodes that
+   open or close with the same words, a word that two episodes pronounce differently, and a word
+   that one episode pronounces and another episode does not. Fix each issue in the scripts.
+3. Check and render each episode into its own directory, such as `out/ep1` and `out/ep2`.
+4. Run `book = await podcast.assemble(["out/ep1", "out/ep2"], "out/book.m4b")`, then `print(book)`.
+   Each episode becomes a chapter with its `title`, and each chapter gets the same loudness. The
+   book also gets `book.vtt`, a transcript on the book timeline, and `book.chapters.md`. Use
+   `.mp3` for a player that cannot play M4B.
 
 ## Compare another producer
 

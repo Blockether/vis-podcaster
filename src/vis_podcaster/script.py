@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from vis_podcaster.text import fact_heard, tokens, word_count
+from vis_podcaster.text import fact_heard, word_count
 
 MAX_HOSTS = 4
 MAX_LINE_WORDS = 70
@@ -272,9 +272,8 @@ def _review(ep: Episode, issues: list[Issue]) -> None:
             issues.append(Issue("warning", "hosts", f"host {hid!r} never speaks"))
         elif len(ep.hosts) > 1 and count / total > 0.75:
             issues.append(Issue("warning", "hosts", f"host {hid!r} speaks {count / total:.0%} of the words"))
-    script_tokens = tokens(ep.text, language=ep.language)
     for i, fact in enumerate(ep.critical_facts):
-        if not fact_heard(fact, script_tokens, tolerance=0.0, language=ep.language):
+        if not fact_heard(fact, ep.text, tolerance=0.0, language=ep.language):
             issues.append(Issue("error", f"critical_facts[{i}]", f"{fact!r} does not occur in the lines"))
     if not ep.sources:
         issues.append(Issue("warning", "sources", "no sources; factual claims are not traceable"))

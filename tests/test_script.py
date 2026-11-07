@@ -29,6 +29,19 @@ def test_a_good_script_has_no_issues():
     assert episode.spoken(episode.lines[1].text).startswith("Chin Shi Huang")
 
 
+def test_a_fact_next_to_another_number_occurs_in_the_lines():
+    s = copy.deepcopy(SCRIPT)
+    s["lines"] += [
+        {"speaker": "a", "text": "In 2008, 40 percent of farms failed. By 1644, 6,000 km of wall stood."},
+        {"speaker": "b", "text": "The towers stand between 100 and 200 metres apart."},
+        {"speaker": "a", "text": "In 1937 three hundred thousand people fled."},
+        {"speaker": "b", "text": "In 476 300 Goths crossed the river. By 1,500 500 men had left."},
+    ]
+    s["critical_facts"] = ["40 percent of farms", "6,000 km of wall", "200 metres apart", "300,000 people fled"]
+    s["critical_facts"] += ["300 Goths", "500 men"]
+    assert not where(check_script(s)[1], "error")
+
+
 def test_errors_are_all_reported_at_once():
     bad = copy.deepcopy(SCRIPT)
     bad["lines"].append({"speaker": "c", "text": "Hi"})

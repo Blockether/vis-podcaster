@@ -6,7 +6,7 @@ outside the default range in `Gates`.
 | Metric | Meaning | Default gate |
 | --- | --- | --- |
 | WER | Word error rate of the judge transcript against the script: (substitutions + deletions + insertions) / reference words | at most 5% |
-| Fact recall | Share of `critical_facts` that the judge transcript contains, with at most 20% word errors and name spelling variants | 100% |
+| Fact recall | Share of `critical_facts` that the judge or the take check of their line heard, with exact numbers, at most 20% word errors and spelling variants of names | 100% |
 | Loudness | Integrated loudness, EBU R128 | -16 ± 1 LUFS |
 | True peak | Highest inter-sample peak | at most -1.0 dBTP |
 | Pace | Script words per minute of audio; an elision such as "l'exposition" is one word | 120 to 190 |
@@ -15,14 +15,49 @@ outside the default range in `Gates`.
 
 ## Measurement rules
 
-- The judge is `vibevoice-asr-local`. It transcribes the whole file in parts of at most one minute,
-  cut in pauses, because its cost grows faster than the length.
+- The judge is `vibevoice-asr-local`. Its cost grows faster than the length, so it hears parts of at
+  most one minute. In a render, each part holds whole lines, and most parts last 20 to 60 seconds. A
+  part ends after a line whose text has a higher hash than each line that ends at most 20 seconds
+  from it, so an edit moves only the part ends near it. A line longer than one minute is a part
+  alone, and the judge hears it in pieces cut at its pauses. WER adds the errors of each part against
+  its own lines. Each judge result is cached by its audio, so after an edit only the parts with
+  changed audio are judged again. `force=True` judges every part again. An empty judge result is not
+  cached, and the next render judges again. `podcast.evaluate` cuts other audio at pauses.
 - The per-line check during rendering uses `parakeet-local`. If its WER is above the gate, the judge
   hears the same take too, and the better result counts. A take is retaken only when both mishear it.
 - Normalization makes the texts comparable: lowercase, no punctuation, no accents, no elision such
-  as "l'", English digits as words, years in both spoken forms, and joined or split compounds such
-  as "watchtowers".
-- WER takes the better of the written script and the script with pronunciations applied.
+  as "l'", English digits as words, years in both spoken forms, no "and" in a number such as "two
+  thousand and eight", decimals with their point ("2.5" is "two point five", and French "2,5" is
+  "deux virgule cinq"), thousands separators ("18,000", and French "18 000"; in English, a space
+  separates two numbers, so "In 476 300 Goths" has two), and joined or split compounds such as
+  "watchtowers".
+- In English, these count as the same words: British and American spellings, such as "practise",
+  "analyse", "judgement", "defence", "towards", "grey" and "programme"; "okay" and "OK"; "all right"
+  and "alright"; "per cent" and "percent"; and spelled letters, such as "S E O" and "SEO". Words
+  that sound the same, such as "to", "too" and "two" or "its" and "it's", count as one word, and a
+  possessive "'s" is not an error.
+- WER takes the better of the written script and the script with pronunciations applied. A spoken
+  form of `pronunciations` in the transcript counts as its written form, so "Chin" heard for "Qin"
+  is not an error.
+- A critical fact counts when the judge hears it with at most 20% word errors, but its numbers must
+  be exact: "1.5 million" does not pass for "2.5 million", and "for" does not pass for "four". A
+  number of the fact cannot be part of a longer number: "2 million" does not pass for "22 million".
+  Punctuation and a number in digits end a number, so "40 percent" passes in "In 2008, 40 percent".
+  A scale word goes on: "1 million 200,000" is one number. Without punctuation or digits, the
+  grammar of numbers decides: "eight forty", "fifty twelve" and French "douze sept" are two numbers,
+  and "nineteen forty" is one. In English, a number in digits passes in each of its usual spoken
+  forms: "a hundred" for "100", "two hundred and twenty-one" for "221", and "fourteen eighty-seven"
+  or "one thousand four hundred eighty-seven" for "1487". "Two and a half" does not pass for "2.5".
+  So write the numbers of a fact in digits. A French number has one spoken form: "2,50 euros" passes
+  for "deux virgule cinquante euros", but not for "deux euros cinquante". Its gender does not
+  matter: "21 personnes" passes for "vingt et une personnes". Spelling variants count only for the
+  names of the fact, its capitalized words longer than three letters: "Shanghai" passes for
+  "Shanhai", but "sticky ice" does not pass for "sticky rice". The first word of a fact is a name
+  only when the script uses it as a name inside a sentence, the fact is one word, or the next word
+  is capitalized too, as in "Shanhai Pass". A filler such as "uh" between the fact words is not an
+  error. When the judge misses a fact, the take check of the line that says it can hear it.
+  `podcast.evaluate` has no takes, so `parakeet-local` hears the whole file for a missed fact. The
+  report names the engines that heard each fact.
 - WER measures intelligibility, not naturalness. Listen to the episode before you publish it.
 
 ## Limits
@@ -30,6 +65,8 @@ outside the default range in `Gates`.
 - No gate checks facts. A wrong date, a reversed direction or a myth passes every gate. Check
   the facts in the script before you render.
 - Recognizers misspell rare names. Such errors raise WER although the audio can be correct.
+- In English, a wrong word that sounds like the right word is not an error: "write" for "right"
+  passes. Listen to short lines that depend on such a word.
 - `parakeet-local` can hear the first words of a line in another language as English, such as
   "Exactly" for "Exactement". The judge check of a failed take removes most of these errors.
 - Digits become words in English and French. In another language, a transcript with "1889" matches

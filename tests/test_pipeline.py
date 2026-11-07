@@ -12,7 +12,17 @@ from dataclasses import dataclass
 import pytest
 
 from vis_podcaster import Gates, Podcaster, ScriptError, audio
-from vis_podcaster.pipeline import GAP_JITTER, QUESTION_GAP, TURN_GAP, _gap
+from vis_podcaster.pipeline import (
+    GAP_JITTER,
+    JUDGE_MIN_PART_SECONDS,
+    JUDGE_PART_SECONDS,
+    QUESTION_GAP,
+    TURN_GAP,
+    _gap,
+    _legacy_seed,
+    _seed,
+    _sha,
+)
 from vis_podcaster.script import load_episode
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
@@ -57,6 +67,7 @@ class FakeSpeech:
 
     def __init__(self, bad=()):
         self.bad, self.heard, self.spoken, self.judged = set(bad), [], [], 0
+        self.judge_seconds, self.misheard = [], {}
 
     def voices(self, engine=None):
         return {"vibevoice-local": [V("emma", "Emma"), V("carter", "Carter")]}.get(engine, [])
@@ -72,11 +83,42 @@ class FakeSpeech:
         return A(audio.encode_wav(audio.Clip(audio.RATE, lead + tone + lead)))
 
     def transcribe(self, data, *, engine=None, timeout=600):
+        clip = audio.decode(data)
         if engine == "vibevoice-asr-local":
+            # The judge hears each take in the audio, by its tone amplitude, like ASR; `misheard` changes the mix.
             self.judged += 1
-            return T(" ".join(line["text"] for line in SCRIPT["lines"]))
-        peak = max(map(abs, audio.decode(data).samples), default=0)
+            self.judge_seconds.append(clip.seconds)
+            text = " ".join(self.heard[k] for k in takes_in(clip))
+            for said, heard in self.misheard.items():
+                text = text.replace(said, heard)
+            return T(text)
+        peak = max(map(abs, clip.samples), default=0)
         return T(self.heard[round((peak - 3000) / 20)])
+
+
+def takes_in(clip):
+    """Return the take numbers in a mix in order. Each take is one tone with its own amplitude."""
+    n = int(clip.rate * 0.02)
+    peaks = [max(map(abs, clip.samples[i : i + n]), default=0) for i in range(0, len(clip.samples), n)]
+    found, top = [], 0
+    for peak in [*peaks, 0]:
+        if peak > 1000:
+            top = max(top, peak)
+        elif top:
+            found.append(round((top - 3000) / 20))
+            top = 0
+    return found
+
+
+def long_script(n=24):
+    """Return a script of `n` different lines of eight words, about 2.4 s each."""
+    words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]
+    words += ["golf", "hotel", "india", "juliet", "kilo", "lima"]
+    lines = [
+        {"speaker": "ab"[i % 2], "text": f"Line {i} has " + " ".join(words[(i + k) % 12] for k in range(6)) + "."}
+        for i in range(n)
+    ]
+    return {**SCRIPT, "critical_facts": [], "lines": lines}
 
 
 def test_render_retakes_misheard_lines_and_caches_takes(tmp_path):
@@ -271,3 +313,166 @@ def test_split_cuts_long_audio_in_its_pauses():
     assert sum(len(p.samples) for p in parts) == len(pcm) and len(parts) == 4
     for p in parts[:-1]:
         assert p.seconds <= 20.0 and max(map(abs, p.samples[-second // 20 :])) == 0
+
+
+def test_the_judge_hears_whole_lines_and_reuses_unchanged_parts(tmp_path):
+    speech = FakeSpeech()
+    pc = Podcaster(speech)
+    script = long_script()
+    first = pc.render(script, tmp_path)
+    parts = first.quality.parts
+    assert len(parts) >= 2 and speech.judged == len(parts)
+    # The parts cover every line once, end between lines and stay under the part limit.
+    assert [p.first_line for p in parts] == [0] + [p.last_line + 1 for p in parts[:-1]]
+    assert parts[-1].last_line == len(script["lines"]) - 1
+    assert all(p.end - p.start <= JUDGE_PART_SECONDS for p in parts)
+    assert first.quality.wer == 0 and all(p.errors == 0 for p in parts)
+    edited = [dict(line) for line in script["lines"]]
+    edited[20]["text"] = "Line twenty is new and quite different now."
+    again = pc.render({**script, "lines": edited}, tmp_path)
+    fresh = [p for p in again.quality.parts if not p.is_cached]
+    assert speech.judged == len(parts) + len(fresh) and 1 <= len(fresh) <= 2
+    assert all(p.is_cached for p in again.quality.parts if p.last_line < 20 and p.first_line <= 20 - 10)
+    assert again.changed == (20,) and again.review and (tmp_path / "changes.mp3").exists()
+    # A review holds only the changed line and one second before it.
+    assert audio.decode(again.review).seconds < 6
+
+
+def test_an_inserted_line_keeps_the_takes_and_gaps_of_the_other_lines(tmp_path):
+    speech = FakeSpeech()
+    pc = Podcaster(speech)
+    script = long_script(8)
+    pc.render(script, tmp_path)
+    before = load_episode(script)
+    spoken = len(speech.spoken)
+    lines = [*script["lines"][:3], {"speaker": "b", "text": "An added line in the middle."}, *script["lines"][3:]]
+    r = pc.render({**script, "lines": lines}, tmp_path)
+    after = load_episode({**script, "lines": lines})
+    assert len(speech.spoken) == spoken + 1 and r.changed == (3,)
+    assert [_gap(after, i) for i in (1, 2, 6, 7, 8)] == [_gap(before, i) for i in (1, 2, 5, 6, 7)]
+
+
+def test_takes_cached_by_line_position_are_still_used(tmp_path):
+    speech = FakeSpeech(bad={SCRIPT["lines"][1]["text"]})
+    pc = Podcaster(speech)
+    pc.render(SCRIPT, tmp_path)
+    episode, takes = load_episode(SCRIPT), tmp_path / "takes"
+    # Version 0.1 keyed each take by a seed from the line position: move every take to that key.
+    for i, line in enumerate(episode.lines):
+        voice = {"a": "emma", "b": "carter"}[line.speaker]
+        for attempt in range(2):
+            new = _sha("vibevoice-local", voice, line.text, _seed(episode, i, attempt), "parakeet-local")
+            old = _sha("vibevoice-local", voice, line.text, _legacy_seed(episode, i, attempt), "parakeet-local")
+            for suffix in (".wav", ".json"):
+                if (takes / f"{new}{suffix}").exists():
+                    (takes / f"{new}{suffix}").rename(takes / f"{old}{suffix}")
+    spoken = len(speech.spoken)
+    r = pc.render(SCRIPT, tmp_path, force=True)
+    assert len(speech.spoken) == spoken and all(t.is_cached for t in r.takes)
+    assert [t.attempts for t in r.takes] == [1, 2, 1]
+
+
+def test_a_fact_that_only_the_take_check_heard_counts_and_a_lost_fact_says_where(tmp_path):
+    speech = FakeSpeech()
+    speech.misheard = {"sticky rice": "sticky ice"}
+    r = Podcaster(speech).render(SCRIPT, tmp_path)
+    (fact,) = r.quality.facts
+    assert r.quality.facts_heard == 1 and fact.heard_by == ("take:parakeet-local",) and fact.line == 1
+    assert "Heard only by a second engine" in str(r.quality)
+    speech.heard = ["sticky ice" if "sticky" in h else h for h in speech.heard]
+    # The raw mix keeps the tone amplitudes that name the takes; mastering changes them.
+    lost = Podcaster(speech).evaluate(tmp_path / "episode-raw.wav", SCRIPT)
+    assert lost.missing_facts == ("sticky rice",) and not lost.is_passed
+    assert '- "sticky rice" (lines[1])' in str(lost)
+
+
+def test_a_fact_next_to_another_number_is_heard(tmp_path):
+    # The year and the count are two numbers: the comma and the digits show where the year ends.
+    line = {"speaker": "b", "text": "In 1990, twenty people died, and in 2008, 40 percent of farms failed."}
+    script = {**SCRIPT, "critical_facts": ["twenty people", "40 percent of farms"], "lines": [SCRIPT["lines"][0], line]}
+    r = Podcaster(FakeSpeech()).render(script, tmp_path)
+    assert r.quality.facts_heard == 2 and all(f.heard_by[0].startswith("mix:") for f in r.quality.facts)
+
+
+def test_an_unchanged_render_returns_at_once_and_force_renders_again(tmp_path):
+    speech = FakeSpeech()
+    pc = Podcaster(speech)
+    first = pc.render(SCRIPT, tmp_path)
+    judged, spoken = speech.judged, len(speech.spoken)
+    again = pc.render(SCRIPT, tmp_path)
+    assert again.is_skipped and (speech.judged, len(speech.spoken)) == (judged, spoken)
+    assert again.quality == first.quality and again.audio == first.audio
+    forced = pc.render(SCRIPT, tmp_path, force=True)
+    assert not forced.is_skipped and forced.changed == () and not (tmp_path / "changes.mp3").exists()
+    # A forced render speaks nothing again, but the judge hears every part again.
+    assert len(speech.spoken) == spoken and speech.judged == judged + len(forced.quality.parts)
+    assert not any(p.is_cached for p in forced.quality.parts)
+
+
+def test_a_wrong_or_empty_judge_result_is_not_kept(tmp_path):
+    speech = FakeSpeech()
+    real = speech.transcribe
+    # An empty transcript, as from a failed judge call, is not cached.
+    speech.transcribe = lambda data, *, engine=None, timeout=600: (
+        T("") if engine == "vibevoice-asr-local" else real(data, engine=engine, timeout=timeout)
+    )
+    pc = Podcaster(speech)
+    assert pc.render(SCRIPT, tmp_path).quality.wer == 1
+    del speech.transcribe
+    speech.misheard = {"wonderful": "wander full"}
+    # The next render judges again, without `force`.
+    again = pc.render(SCRIPT, tmp_path)
+    assert not again.is_skipped and again.quality.wer > 0 and not any(p.is_cached for p in again.quality.parts)
+    # A wrong transcript stays in the cache until a forced render judges again.
+    speech.misheard = {}
+    assert pc.render(SCRIPT, tmp_path, force=True).quality.wer == 0
+
+
+def test_a_render_without_its_takes_speaks_them_again(tmp_path):
+    speech = FakeSpeech()
+    pc = Podcaster(speech)
+    pc.render(SCRIPT, tmp_path)
+    spoken = len(speech.spoken)
+    shutil.rmtree(tmp_path / "takes")
+    r = pc.render(SCRIPT, tmp_path)
+    assert not r.is_skipped and len(speech.spoken) == spoken + len(SCRIPT["lines"])
+
+
+def test_a_new_pronunciation_is_a_change_and_a_skipped_render_still_tells_it(tmp_path):
+    speech = FakeSpeech()
+    pc = Podcaster(speech)
+    pc.render(SCRIPT, tmp_path)
+    script = {**SCRIPT, "pronunciations": {"mortar": "more tar"}}
+    r = pc.render(script, tmp_path)
+    assert r.changed == (1,) and r.review and (tmp_path / "changes.mp3").exists()
+    again = pc.render(script, tmp_path)
+    assert again.is_skipped and again.changed == (1,) and again.review == r.review
+    assert "Changed in the last render" in str(again)
+
+
+def test_a_pause_before_the_first_line_moves_its_timeline_too(tmp_path):
+    lines = [{**SCRIPT["lines"][0], "pause": 1.5}, *SCRIPT["lines"][1:]]
+    r = Podcaster(FakeSpeech()).render({**SCRIPT, "lines": lines}, tmp_path)
+    mix = audio.decode(tmp_path / "episode-raw.wav")
+    voiced = next(i for i, x in enumerate(mix.samples) if abs(x) > 1000) / mix.rate
+    # Each take starts with 60 ms of the room that trimming keeps.
+    assert abs(voiced - r.takes[0].start) < 0.1
+    assert "00:00:01.8" in (tmp_path / "episode.vtt").read_text()
+
+
+def test_an_edit_judges_again_only_the_parts_near_it(tmp_path):
+    speech = FakeSpeech()
+    pc = Podcaster(speech)
+    script = long_script(36)
+    first = pc.render(script, tmp_path)
+    assert len(first.quality.parts) >= 3
+    edited = [dict(line) for line in script["lines"]]
+    # The same count of words gives a take of the same length. Cuts that counted from the start of
+    # each part moved in all later parts after this edit.
+    edited[15]["text"] = "Line 15 has kilo lima alpha bravo charlie delta."
+    judged = speech.judged
+    again = pc.render({**script, "lines": edited}, tmp_path)
+    fresh = [p for p in again.quality.parts if not p.is_cached]
+    assert speech.judged - judged == len(fresh) <= 2 and any(p.first_line <= 15 <= p.last_line for p in fresh)
+    near = (again.takes[15].start - JUDGE_MIN_PART_SECONDS - 1, again.takes[15].end + JUDGE_MIN_PART_SECONDS + 1)
+    assert all(p.is_cached for p in again.quality.parts if p.end < near[0] or p.start > near[1])

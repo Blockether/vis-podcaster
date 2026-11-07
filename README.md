@@ -7,6 +7,7 @@ Turn a written dialogue into a mastered two-host podcast episode with Vis speech
 - You want a short spoken episode on a topic, with two hosts who talk to each other.
 - You want each line checked by speech recognition, so that a mispronounced line is recorded again.
 - You want to compare your episode with audio from another tool, against the same quality gates.
+- You want a series of episodes joined into one audiobook with chapters.
 
 ## What you get
 
@@ -19,7 +20,13 @@ cholera outbreak." The `podcast` skill then does these steps:
 4. A second recognizer judges the finished file.
 
 The result is `episode.mp3`, `episode.vtt` subtitles and a quality report. The report gives the word
-error rate, the critical facts that the listener hears, loudness and pace.
+error rate, the critical facts that the listener hears, loudness and pace. For each missing fact, it
+gives the line, the time and what each recognizer heard.
+
+When you change the script and render again, only the changed lines are spoken again, and the judge
+hears again only the parts of the episode near them. `changes.mp3` then holds only those lines, so
+you can review an edit without the full episode. A render of an unchanged script returns the earlier
+result at once.
 
 ## Requirements
 
@@ -40,6 +47,15 @@ check = await podcast.check("episode.json")
 print(check)
 r = await podcast.render("episode.json", "out/episode")
 print(r)
+```
+
+For a series, check the scripts together, render each episode into its own directory, then join
+the renders into one audiobook with chapters:
+
+```python
+print(await podcast.check_series(["ep1.json", "ep2.json"]))
+book = await podcast.assemble(["out/ep1", "out/ep2"], "out/book.m4b")
+print(book)
 ```
 
 `skills/podcast/SKILL.md` gives the script format, the voices and the repair steps.
