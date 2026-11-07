@@ -1,8 +1,10 @@
 """Qwen3-TTS on Apple silicon through MLX, next to the Vis speech engines.
 
 The model runs in a separate Python environment that has `mlx-audio`. A pool of worker processes serves
-the takes: a take uses a free worker, or starts a new one when all are busy. Each worker loads the
-CustomVoice model for the built-in speakers and the Base model for cloned voices, each on first use. All other calls go to the wrapped Vis speech API.
+the takes: a take uses a free worker, or starts a new one when all are busy. Each worker holds one model:
+the CustomVoice model for the built-in speakers or the Base model for cloned voices. It drops one model
+before it loads the other, and it runs under MLX cache and memory limits (VIS_PODCASTER_MLX_CACHE_GIB,
+default 1, and VIS_PODCASTER_MLX_MEMORY_GIB, default 5). All other calls go to the wrapped Vis speech API.
 """
 
 from __future__ import annotations
@@ -27,8 +29,9 @@ ENGINE = "qwen3-tts-mlx"
 MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
 # The Base model clones a voice from a short clip and its transcript.
 CLONE_MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
-# Each worker loads its own model copy of about 2 GB. More than three gain little on one GPU.
-MAX_WORKERS = 3
+# Each worker loads its own model copy of about 2 GB, and several workers on one GPU multiply that memory
+# for little speed. So one worker serves the takes by default.
+MAX_WORKERS = 1
 # Set VIS_PODCASTER_QWEN_PYTHON to a Python that has mlx-audio installed.
 PYTHON = Path(os.environ.get("VIS_PODCASTER_QWEN_PYTHON", "~/.vis/podcaster/mlx-venv/bin/python")).expanduser()
 # Bundled preset voices: one clean clip, its transcript and its license for each voice.
@@ -63,20 +66,36 @@ MIN_CLIP_SECONDS = 3.0
 MAX_CLIP_SECONDS = 30.0
 
 WORKER = r"""
-import json, os, sys, wave
+import gc, json, os, sys, wave
 proto = os.fdopen(os.dup(1), "w")
 os.dup2(2, 1)
 import mlx.core as mx
 import numpy as np
 from mlx_audio.tts.utils import load_model
-models = {}
+try:
+    cache_gib = float(os.environ.get("VIS_PODCASTER_MLX_CACHE_GIB", "1"))
+    memory_gib = float(os.environ.get("VIS_PODCASTER_MLX_MEMORY_GIB", "5"))
+    if cache_gib <= 0 or memory_gib <= 0:
+        raise ValueError(f"cache {cache_gib} GiB and memory {memory_gib} GiB must be above 0")
+    mx.set_cache_limit(int(cache_gib * 2**30))
+    mx.set_memory_limit(int(memory_gib * 2**30))
+except Exception as e:
+    # Without limits, MLX keeps freed buffers in its cache and the worker grows without bound.
+    proto.write(json.dumps({"error": f"cannot set the MLX memory limits: {type(e).__name__}: {e}"}) + "\n")
+    proto.flush()
+    sys.exit(3)
+name, model = None, None
 proto.write(json.dumps({"ready": True}) + "\n"); proto.flush()
 for line in sys.stdin:
     req = json.loads(line)
     try:
-        if req["model"] not in models:
-            models[req["model"]] = load_model(req["model"])
-        model = models[req["model"]]
+        if req["model"] != name:
+            # Drop the old model before the next one loads: two 1.7B models double the memory.
+            name, model = None, None
+            gc.collect()
+            mx.clear_cache()
+            model = load_model(req["model"])
+            name = req["model"]
         if req.get("seed") is not None:
             mx.random.seed(int(req["seed"]))
             np.random.seed(int(req["seed"]) % 2**32)
@@ -94,6 +113,8 @@ for line in sys.stdin:
         proto.write(json.dumps({"ok": True}) + "\n")
     except Exception as e:
         proto.write(json.dumps({"error": f"{type(e).__name__}: {e}"}) + "\n")
+    finally:
+        mx.clear_cache()
     proto.flush()
 """
 
@@ -387,7 +408,8 @@ class QwenSpeech:
         ready = proc.stdout.readline()
         if not ready.startswith('{"ready"'):
             proc.kill()
-            raise RuntimeError(f"{ENGINE}: the worker did not start with {self._python}")
+            detail = ready.strip() or "no reply"
+            raise RuntimeError(f"{ENGINE}: the worker did not start with {self._python}: {detail}")
         return proc
 
 
