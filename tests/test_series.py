@@ -296,3 +296,65 @@ def test_a_written_form_inside_a_longer_word_is_not_missing():
         ]
     )
     assert report.is_passed
+
+
+def test_a_book_with_music_opens_and_closes_with_the_theme_and_has_stings(renders, tmp_path):
+    from vis_podcaster.music import closing, compose
+
+    score = compose(tmp_path / "music", mood="bright", seed=5)
+    plain = assemble(renders, tmp_path / "plain.mp3", gap=1.6)
+    book = assemble(renders, tmp_path / "music.mp3", gap=1.6, music=score)
+    theme_frames = len(audio.decode(score.theme).samples)
+    sting_seconds = audio.decode(score.sting).seconds
+    # The first word comes at the end of the lead; the first mark still starts at zero.
+    assert book.chapters[0].start == 0.0
+    vtt = book.transcript.read_text()
+    assert f"00:00:{score.lead + 0.3:06.3f} --> " in vtt
+    # Each gap grows to hold the sting, and still belongs to the chapter before it.
+    first_gap = book.chapters[1].start - (score.lead + 3.0)
+    assert sting_seconds < first_gap < sting_seconds + 2.5
+    assert book.chapters[0].end == pytest.approx(book.chapters[1].start, abs=0.002)
+    # The closing theme belongs to the last chapter.
+    speech_end = book.chapters[2].start + 2.5
+    assert book.seconds == pytest.approx(
+        speech_end + len(closing(array.array("h", bytes(2 * theme_frames)), 30.0)) / RATE, abs=0.01
+    )
+    assert book.chapters[2].end == pytest.approx(book.seconds, abs=0.002)
+    marks = ffprobe(tmp_path / "music.mp3")["chapters"]
+    assert float(marks[-1]["end_time"]) == pytest.approx(book.seconds, abs=0.01)
+
+    mix, dry = audio.decode(tmp_path / "music.mp3").samples, audio.decode(tmp_path / "plain.mp3").samples
+
+    def level(clip, a: float, b: float) -> float:
+        part = clip[round(a * RATE) : round(b * RATE)]
+        return 10 * math.log10(sum(v * v for v in part) / len(part) / 32768**2 + 1e-12)
+
+    def under(a: float, b: float, shift: float) -> float:
+        """The level of the music alone under speech: the mix minus the same speech without music."""
+        n0, n1, s = round(a * RATE), round(b * RATE), round(shift * RATE)
+        diff = [x - y for x, y in zip(mix[n0:n1], dry[n0 - s : n1 - s], strict=True)]
+        return 10 * math.log10(sum(v * v for v in diff) / len(diff) / 32768**2 + 1e-12)
+
+    alone = level(mix, 0.2, score.lead - 0.6)
+    assert alone > -35
+    # Under the first words the theme is about 15 dB lower than alone; later in the book there is no music.
+    assert under(score.lead + 0.5, score.lead + 2.5, score.lead) == pytest.approx(alone - 15, abs=5)
+    ch2 = book.chapters[1].start
+    assert under(ch2 + 0.5, ch2 + 3.5, ch2 - plain.chapters[1].start) < alone - 35
+    # The sting plays in the gap after chapter one, where the plain book is silent.
+    assert level(mix, score.lead + 3.0 + 0.5, ch2 - 0.5) > -40
+    # This first chapter ends under the theme, so the theme fades out in the gap; it does not stop at once.
+    assert level(mix, score.lead + 3.0 + 0.05, score.lead + 3.0 + 0.5) > alone - 30
+    assert level(dry, 3.0 + 0.2, 3.0 + 1.4) < -70
+
+
+def test_titles_replace_the_manifest_titles(renders, tmp_path):
+    book = assemble(renders, tmp_path / "named.mp3", titles=["Prologue", "Part One", "Epilogue"])
+    assert [c.title for c in book.chapters] == ["Prologue", "Part One", "Epilogue"]
+    assert [c["tags"]["title"] for c in ffprobe(tmp_path / "named.mp3")["chapters"]] == [
+        "Prologue",
+        "Part One",
+        "Epilogue",
+    ]
+    with pytest.raises(ValueError, match="titles has 2 names for 3 renders"):
+        assemble(renders, tmp_path / "bad.mp3", titles=["One", "Two"])

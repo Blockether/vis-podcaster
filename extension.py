@@ -17,6 +17,7 @@ from vis_podcaster import (
     ScriptCheck,
     SeriesReport,
     VoiceChoice,
+    music,
     series,
 )
 
@@ -102,6 +103,15 @@ def _here(value):
     if isinstance(value, str) and not value.lstrip().startswith("{"):
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else vis.workspace_root() / path)
+    return value
+
+
+def _music(value):
+    """Resolve the files of a music argument against the session workspace; keep moods and other values."""
+    if isinstance(value, str) and value not in music.MOODS:
+        return _here(value)
+    if isinstance(value, dict):
+        return {k: _here(v) if k in ("theme", "sting") and isinstance(v, str) else v for k, v in value.items()}
     return value
 
 
@@ -199,6 +209,8 @@ class VisPodcaster(Podcaster):
         lufs: float = -16.0,
         title: str | None = None,
         artist: str | None = None,
+        titles: list[str] | None = None,
+        music: str | dict | None = None,
         timeout: float = 1800,
     ) -> Book:
         return series.assemble(
@@ -208,6 +220,8 @@ class VisPodcaster(Podcaster):
             lufs=lufs,
             title=title,
             artist=artist,
+            titles=titles,
+            music=_music(music),
             timeout=timeout,
         )
 
@@ -227,6 +241,7 @@ vis.register_extension(
         prompt=(
             "podcast: write a script, check it with podcast.check(script), then podcast.render(script, out_dir). "
             "For a series: podcast.check_series(scripts), then podcast.assemble(render_dirs, 'book.m4b'). "
+            "podcast.assemble(..., music='warm') adds an original theme and stings; it also works on one render. "
             "Read doc('vis-podcaster/podcast') before the first episode."
         ),
         symbols=[vis.Symbol(VisPodcaster(QwenSpeech(_speech)), name="podcast")],

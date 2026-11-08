@@ -58,6 +58,18 @@ book = await podcast.assemble(["out/ep1", "out/ep2"], "out/book.m4b")
 print(book)
 ```
 
+To add music, give a mood: `warm`, `bright` or `calm`. The podcaster composes an original theme and
+sting for the book, so the music has no license terms. The theme opens the book and plays quietly
+under the first words. The sting plays between the chapters, and the theme closes the book. Music
+also works on one render:
+
+```python
+book = await podcast.assemble(["out/episode"], "out/episode-music.mp3", music="warm")
+```
+
+To use your own music, give a file, such as `music="theme.mp3"`, or a mapping, such as
+`{"theme": "theme.mp3", "sting": "sting.wav", "bed": -18}`.
+
 `skills/podcast/SKILL.md` gives the script format, the voices and the repair steps.
 `examples/great-wall.json` is a complete script.
 

@@ -197,9 +197,17 @@ def measure(path: str | Path) -> Loudness:
 
 
 def master(
-    wav: str | Path, out: str | Path, *, lufs: float = -16.0, true_peak: float = -1.5, bitrate: str = "96k"
+    wav: str | Path,
+    out: str | Path,
+    *,
+    lufs: float = -16.0,
+    true_peak: float = -1.5,
+    bitrate: str = "96k",
+    chain: str = VOICE_CHAIN,
 ) -> Loudness:
-    """Apply VOICE_CHAIN, a gain to `lufs` and a peak limiter below `true_peak`; encode by suffix.
+    """Apply `chain`, a gain to `lufs` and a peak limiter below `true_peak`; encode by suffix.
+
+    `chain` is the FFmpeg filter chain that runs first: VOICE_CHAIN for speech, or "" for music.
 
     The gain is measured, then corrected up to two times until the result is within 0.2 LU.
     `.mp3` uses LAME at `bitrate`; `.m4a` uses AAC; `.wav` stays PCM. Return the result loudness.
@@ -212,16 +220,15 @@ def master(
     }.get(out.suffix.lower())
     if codec is None:
         raise AudioError(f"unsupported output type {out.suffix!r}; use .mp3, .m4a or .wav")
-    probe = _loudnorm_json(
-        _run(["-i", str(wav), "-af", f"{VOICE_CHAIN},loudnorm=print_format=json", "-f", "null", "-"]).stderr
-    )
+    pre = f"{chain}," if chain else ""
+    probe = _loudnorm_json(_run(["-i", str(wav), "-af", f"{pre}loudnorm=print_format=json", "-f", "null", "-"]).stderr)
     gain = lufs - float(probe["input_i"])
     # The limiter works on sample peaks; 1 dB of room keeps the true peak under the ceiling.
     limit = 10 ** ((true_peak - 1.0) / 20)
     result = None
     for _ in range(4):
-        chain = f"{VOICE_CHAIN},volume={gain:.2f}dB,alimiter=limit={limit:.4f}:attack=2:release=60:level=false"
-        _run(["-y", "-i", str(wav), "-af", chain, "-ar", str(RATE), "-ac", "1", *codec, str(out)])
+        filters = f"{pre}volume={gain:.2f}dB,alimiter=limit={limit:.4f}:attack=2:release=60:level=false"
+        _run(["-y", "-i", str(wav), "-af", filters, "-ar", str(RATE), "-ac", "1", *codec, str(out)])
         result = measure(out)
         is_loud = abs(result.lufs - lufs) <= 0.2
         if is_loud and result.true_peak <= true_peak:

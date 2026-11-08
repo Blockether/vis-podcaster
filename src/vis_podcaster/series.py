@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import array
 import json
 import os
 import re
 import subprocess
 import tempfile
 import wave
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
 from . import audio
+from .music import Music, between, closing, opening, resolve
 from .script import Episode, load_episode
 from .text import tokens
 
@@ -121,6 +123,29 @@ def _render(item: Any, number: int) -> tuple[Path, dict]:
     return folder, data
 
 
+def _music_clip(path: Path, out: Path, lufs: float) -> array.array:
+    """Return a music file as 16-bit mono samples at the book rate, with the loudness `lufs`."""
+    audio.master(path, out, lufs=lufs, chain="")
+    with wave.open(str(out)) as r:
+        return array.array("h", r.readframes(r.getnframes()))
+
+
+def _first_voice(r: wave.Wave_read, limit: float = 10.0) -> int:
+    """Return the first frame of `r` above -45 dBFS, looking at most `limit` seconds in; then rewind `r`."""
+    clip = audio.Clip(audio.RATE, array.array("h", r.readframes(round(limit * audio.RATE))))
+    r.rewind()
+    first = next((k for k, db in enumerate(audio.frame_levels(clip)) if db > -45.0), 0)
+    return first * round(audio.FRAME * audio.RATE)
+
+
+def _mix(frames: bytes, overlay: array.array) -> tuple[bytes, array.array]:
+    """Add the start of `overlay` to the 16-bit `frames`; return the mixed frames and the rest of `overlay`."""
+    pcm = array.array("h", frames)
+    n = min(len(pcm), len(overlay))
+    pcm[:n] = array.array("h", (max(-32768, min(32767, a + b)) for a, b in zip(pcm[:n], overlay[:n], strict=True)))
+    return pcm.tobytes(), overlay[n:]
+
+
 def _meta(value: str) -> str:
     """Escape a value for an FFMETADATA file."""
     return re.sub(r"([=;#\\\n])", r"\\\1", value)
@@ -140,6 +165,8 @@ def assemble(
     lufs: float = -16.0,
     title: str | None = None,
     artist: str | None = None,
+    titles: Sequence[str] | None = None,
+    music: Music | Mapping[str, Any] | str | None = None,
     timeout: float = _ENCODE_TIMEOUT,
 ) -> Book:
     """Join chapter renders, in order, into one audiobook file with chapter marks.
@@ -151,6 +178,12 @@ def assemble(
     The suffix of `out_file` selects the format: `.mp3` (96 kbit/s, ID3v2.3 chapters) or `.m4b`/`.m4a`
     (AAC 80 kbit/s, chapters, faststart). Also writes `<name>.vtt`, with all cues on the book timeline and
     one `NOTE` per chapter, and `<name>.chapters.md`. `timeout` limits the final encoding in seconds.
+    `titles` gives one chapter title for each render, in place of the manifest titles.
+    `music` adds music: a mood from `music.MOODS` composes an original theme and sting with the book title as
+    the seed, a file path is a theme, and a `music.Music` or a mapping of its fields gives your own files and
+    levels. The theme opens the book and stays quietly under the first words; the sting plays in each gap, and
+    the gap grows to fit it; the theme closes the book. The first chapter mark starts at zero and the last one
+    includes the closing theme; the cues move with the music.
     The same input gives the same files. Raise ValueError for a bad argument or a render that is not complete,
     and FileNotFoundError that names the chapter for a missing manifest or raw mix.
     """
@@ -163,6 +196,10 @@ def assemble(
     if gap < 0:
         raise ValueError(f"gap must be zero or more seconds, not {gap}")
     items = [_render(item, n) for n, item in enumerate(renders, start=1)]
+    if titles is not None:
+        titles = [str(t) for t in titles]
+        if len(titles) != len(items):
+            raise ValueError(f"titles has {len(titles)} names for {len(items)} renders; give one for each render")
     if title is None:
         script = items[0][1].get("script")
         title = str(script.get("show") or "") if isinstance(script, dict) else ""
@@ -173,33 +210,55 @@ def assemble(
     cue_number = 1
     with tempfile.TemporaryDirectory(prefix="vis-podcaster-book-") as tmp:
         work = Path(tmp)
+        score = resolve(music, work / "music", seed=title)
+        theme = _music_clip(score.theme, work / "theme.wav", lufs + score.level) if score and score.theme else None
+        sting = _music_clip(score.sting, work / "sting.wav", lufs + score.level) if score and score.sting else None
         joined = work / "book.wav"
         clock = 0
         with wave.open(str(joined), "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(audio.RATE)
+            # The opening theme is on the book timeline: it goes on into a gap when the first chapter is short.
+            overlay = array.array("h")
             for i, (folder, manifest) in enumerate(items):
                 mastered = work / f"{i:03d}.wav"
                 audio.master(folder / "episode-raw.wav", mastered, lufs=lufs)
-                if i:
-                    w.writeframes(bytes(2 * gap_frames))
-                    clock += gap_frames
-                start = clock
                 with wave.open(str(mastered)) as r:
                     if (r.getnchannels(), r.getsampwidth(), r.getframerate()) != (1, 2, audio.RATE):
                         raise audio.AudioError(f"chapter {i + 1}: mastered audio is not 16-bit mono {audio.RATE} Hz")
+                    if i:
+                        fill, overlay = _mix(between(sting, gap_frames).tobytes(), overlay)
+                        w.writeframes(fill)
+                        clock += len(fill) // 2
+                    elif theme is not None:
+                        # The first word comes at the end of the lead; the theme goes on under it.
+                        voice = _first_voice(r)
+                        offset = max(0, min(len(theme), round(score.lead * audio.RATE)) - voice)
+                        overlay = opening(theme, offset + voice, score.bed)
+                        w.writeframes(overlay[:offset].tobytes())
+                        overlay = overlay[offset:]
+                        clock += offset
+                    start = clock
                     while frames := r.readframes(_CHUNK_FRAMES):
+                        if overlay:
+                            frames, overlay = _mix(frames, overlay)
                         w.writeframes(frames)
                     clock += r.getnframes()
                 begin, end = start / audio.RATE, clock / audio.RATE
-                name = manifest["title"]
+                name = titles[i] if titles is not None else manifest["title"]
                 vtt += [f"NOTE {name.replace('-->', '->')}", ""]
                 for cue_start, cue_end, text in _cues(folder, manifest):
                     a, b = begin + min(cue_start, end - begin), begin + min(cue_end, end - begin)
                     vtt += [str(cue_number), f"{_vtt_time(a)} --> {_vtt_time(b)}", text, ""]
                     cue_number += 1
-                chapters.append(Chapter(name, begin, end, folder))
+                chapters.append(Chapter(name, begin if i else 0.0, end, folder))
+            if theme is not None:
+                tail, overlay = _mix(closing(theme, score.outro).tobytes(), overlay)
+                tail += overlay.tobytes()
+                w.writeframes(tail)
+                clock += len(tail) // 2
+                chapters[-1] = replace(chapters[-1], end=clock / audio.RATE)
         # The gap after a chapter belongs to it, so the chapter marks leave no hole.
         chapters = [
             Chapter(c.title, c.start, chapters[k + 1].start if k + 1 < len(chapters) else c.end, c.source)

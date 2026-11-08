@@ -1,5 +1,6 @@
 """Two-host podcast production for Vis: script checks, verified speech, mastering and quality gates."""
 
+from vis_podcaster.music import MOODS, Music, compose
 from vis_podcaster.pipeline import (
     FactCheck,
     Gates,
@@ -16,6 +17,7 @@ from vis_podcaster.script import Episode, Host, Issue, Line, ScriptError, check_
 from vis_podcaster.series import Book, Chapter, SeriesIssue, SeriesReport, assemble, check_series
 
 __all__ = [
+    "MOODS",
     "Book",
     "Chapter",
     "Episode",
@@ -25,6 +27,7 @@ __all__ = [
     "Issue",
     "JudgePart",
     "Line",
+    "Music",
     "Podcaster",
     "Quality",
     "QwenSpeech",
@@ -38,5 +41,6 @@ __all__ = [
     "assemble",
     "check_script",
     "check_series",
+    "compose",
     "load_episode",
 ]

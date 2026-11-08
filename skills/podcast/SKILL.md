@@ -225,7 +225,18 @@ specific. For other languages, it checks only sentence length and the question s
 4. Run `book = await podcast.assemble(["out/ep1", "out/ep2"], "out/book.m4b")`, then `print(book)`.
    Each episode becomes a chapter with its `title`, and each chapter gets the same loudness. The
    book also gets `book.vtt`, a transcript on the book timeline, and `book.chapters.md`. Use
-   `.mp3` for a player that cannot play M4B.
+   `.mp3` for a player that cannot play M4B. To replace the chapter titles, give `titles=[...]`
+   with one title for each render.
+5. To add music, give `music="warm"`, `music="bright"` or `music="calm"`. The podcaster composes an
+   original theme and sting. The book title is the seed, so the same title gives the same music.
+   The theme plays alone for two bars, then plays 15 dB lower under the first words and fades out.
+   The sting plays in each gap between chapters, and the gap becomes longer to hold it. After the
+   last chapter, the theme plays again. Music also works on one render.
+   - For other music in the same mood, give a mapping such as `{"mood": "warm", "seed": 7}`.
+   - For your own files, give `music="theme.mp3"`, or a mapping with the `Music` fields: `theme`,
+     `sting`, `lead` (seconds), `bed` (dB under speech), `outro` (seconds) and `level` (dB
+     relative to the speech).
+   - Listen to the first 20 seconds and to one gap before you publish the book.
 
 ## Compare another producer
 
