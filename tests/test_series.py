@@ -6,6 +6,7 @@ import hashlib
 import itertools
 import json
 import math
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -358,3 +359,25 @@ def test_titles_replace_the_manifest_titles(renders, tmp_path):
     ]
     with pytest.raises(ValueError, match="titles has 2 names for 3 renders"):
         assemble(renders, tmp_path / "bad.mp3", titles=["One", "Two"])
+
+
+def test_speed_makes_the_speech_faster_with_the_same_pitch(renders, tmp_path):
+    book = assemble(renders, tmp_path / "fast.mp3", speed=1.25)
+    # The chapters have 3.0, 4.0 and 2.5 seconds of speech; the two gaps stay 1.6 seconds.
+    assert book.seconds == pytest.approx(9.5 / 1.25 + 2 * 1.6, abs=0.03)
+    assert book.chapters[1].start == pytest.approx(3.0 / 1.25 + 1.6, abs=0.02)
+    # The cues move with the speech: a cue at 0.3 seconds into a chapter is now at 0.24 seconds.
+    starts = [
+        60 * int(m) + float(s)
+        for m, s in re.findall(r"^00:(\d\d):(\d\d\.\d{3}) --> ", book.transcript.read_text(), re.MULTILINE)
+    ]
+    assert starts[0] == pytest.approx(0.24, abs=0.002)
+    assert starts[2] == pytest.approx(book.chapters[1].start + 0.24, abs=0.002)
+    # Chapter two is a 330 Hz tone; a faster tempo must not make it higher.
+    pcm = audio.decode(tmp_path / "fast.mp3").samples
+    first = round((book.chapters[1].start + 0.5) * RATE)
+    part = pcm[first : first + RATE]
+    assert sum(1 for x, y in itertools.pairwise(part) if x < 0 <= y) == pytest.approx(330, abs=6)
+    for bad in (0.4, 2.5):
+        with pytest.raises(ValueError, match="speed must be from 0.5 to 2.0"):
+            assemble(renders, tmp_path / "bad.mp3", speed=bad)

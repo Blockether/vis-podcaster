@@ -237,6 +237,10 @@ specific. For other languages, it checks only sentence length and the question s
      `sting`, `lead` (seconds), `bed` (dB under speech), `outro` (seconds) and `level` (dB
      relative to the speech).
    - Listen to the first 20 seconds and to one gap before you publish the book.
+6. To make the speech faster or slower, give `speed`, from 0.5 to 2.0. For example, `speed=1.1`
+   is 10% faster. The pitch does not change, the music keeps its tempo, and the cues of the
+   transcript move with the speech. The pace in the quality report of a render is the pace
+   before this change.
 
 ## Compare another producer
 

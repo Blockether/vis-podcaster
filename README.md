@@ -70,6 +70,9 @@ book = await podcast.assemble(["out/episode"], "out/episode-music.mp3", music="w
 To use your own music, give a file, such as `music="theme.mp3"`, or a mapping, such as
 `{"theme": "theme.mp3", "sting": "sting.wav", "bed": -18}`.
 
+To make the speech faster or slower, give `speed`, such as `speed=1.1` for 10% faster. The pitch
+does not change, and the music keeps its tempo.
+
 `skills/podcast/SKILL.md` gives the script format, the voices and the repair steps.
 `examples/great-wall.json` is a complete script.
 

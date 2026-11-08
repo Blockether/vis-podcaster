@@ -167,6 +167,7 @@ def assemble(
     artist: str | None = None,
     titles: Sequence[str] | None = None,
     music: Music | Mapping[str, Any] | str | None = None,
+    speed: float = 1.0,
     timeout: float = _ENCODE_TIMEOUT,
 ) -> Book:
     """Join chapter renders, in order, into one audiobook file with chapter marks.
@@ -184,6 +185,8 @@ def assemble(
     levels. The theme opens the book and stays quietly under the first words; the sting plays in each gap, and
     the gap grows to fit it; the theme closes the book. The first chapter mark starts at zero and the last one
     includes the closing theme; the cues move with the music.
+    `speed` changes the tempo of the speech but not its pitch: 1.1 is 10 percent faster. The music keeps its
+    tempo, and the cues move with the speech.
     The same input gives the same files. Raise ValueError for a bad argument or a render that is not complete,
     and FileNotFoundError that names the chapter for a missing manifest or raw mix.
     """
@@ -195,6 +198,9 @@ def assemble(
         raise ValueError("renders is empty; give at least one render folder")
     if gap < 0:
         raise ValueError(f"gap must be zero or more seconds, not {gap}")
+    if not 0.5 <= speed <= 2.0:
+        raise ValueError(f"speed must be from 0.5 to 2.0, not {speed}")
+    chain = audio.VOICE_CHAIN if speed == 1 else f"{audio.VOICE_CHAIN},atempo={speed:.6g}"
     items = [_render(item, n) for n, item in enumerate(renders, start=1)]
     if titles is not None:
         titles = [str(t) for t in titles]
@@ -223,7 +229,7 @@ def assemble(
             overlay = array.array("h")
             for i, (folder, manifest) in enumerate(items):
                 mastered = work / f"{i:03d}.wav"
-                audio.master(folder / "episode-raw.wav", mastered, lufs=lufs)
+                audio.master(folder / "episode-raw.wav", mastered, lufs=lufs, chain=chain)
                 with wave.open(str(mastered)) as r:
                     if (r.getnchannels(), r.getsampwidth(), r.getframerate()) != (1, 2, audio.RATE):
                         raise audio.AudioError(f"chapter {i + 1}: mastered audio is not 16-bit mono {audio.RATE} Hz")
@@ -249,7 +255,7 @@ def assemble(
                 name = titles[i] if titles is not None else manifest["title"]
                 vtt += [f"NOTE {name.replace('-->', '->')}", ""]
                 for cue_start, cue_end, text in _cues(folder, manifest):
-                    a, b = begin + min(cue_start, end - begin), begin + min(cue_end, end - begin)
+                    a, b = (begin + min(t / speed, end - begin) for t in (cue_start, cue_end))
                     vtt += [str(cue_number), f"{_vtt_time(a)} --> {_vtt_time(b)}", text, ""]
                     cue_number += 1
                 chapters.append(Chapter(name, begin if i else 0.0, end, folder))

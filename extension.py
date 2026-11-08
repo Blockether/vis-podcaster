@@ -211,6 +211,7 @@ class VisPodcaster(Podcaster):
         artist: str | None = None,
         titles: list[str] | None = None,
         music: str | dict | None = None,
+        speed: float = 1.0,
         timeout: float = 1800,
     ) -> Book:
         return series.assemble(
@@ -222,6 +223,7 @@ class VisPodcaster(Podcaster):
             artist=artist,
             titles=titles,
             music=_music(music),
+            speed=speed,
             timeout=timeout,
         )
 
@@ -241,7 +243,8 @@ vis.register_extension(
         prompt=(
             "podcast: write a script, check it with podcast.check(script), then podcast.render(script, out_dir). "
             "For a series: podcast.check_series(scripts), then podcast.assemble(render_dirs, 'book.m4b'). "
-            "podcast.assemble(..., music='warm') adds an original theme and stings; it also works on one render. "
+            "podcast.assemble(..., music='warm') adds an original theme and stings, and speed=1.1 makes the speech "
+            "10% faster. Both also work on one render. "
             "Read doc('vis-podcaster/podcast') before the first episode."
         ),
         symbols=[vis.Symbol(VisPodcaster(QwenSpeech(_speech)), name="podcast")],
