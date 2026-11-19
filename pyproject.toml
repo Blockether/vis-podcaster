@@ -1,6 +1,6 @@
 [project]
 name = "vis-podcaster"
-version = "0.3.0"
+version = "0.3.1"
 description = "Two-host podcasts with Vis speech engines, ASR-verified takes and quality gates."
 keywords = ["media", "machine-learning"]
 requires-python = ">=3.12"
